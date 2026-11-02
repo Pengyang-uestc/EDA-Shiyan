@@ -7,7 +7,18 @@
 - 迭代 1：封装编辑器 + 元件库
 - 迭代 2：PCB 编辑器（层组、放置布局、布线、覆铜）
 
-技术栈：C++17 · Qt 6.5+ Widgets · QPainter · CMake。
+技术栈：C++17 · Qt 6.11.1 Widgets · QPainter · CMake。
+
+## 构建前提
+
+| 项 | 要求 |
+|---|---|
+| Qt | 6.11.1，`msvc2022_64`，路径 `D:\Qt\6.11.1\msvc2022_64` |
+| 编译器 | VS2026 的 14.44（v143）工具集；v145 未验证 |
+| CMake | 3.21+；可用 `D:\Qt\Tools\CMake_64\bin\cmake.exe` |
+| 环境变量 | `CMAKE_PREFIX_PATH` 指向 `D:\Qt\6.11.1\msvc2022_64`，或用 Qt Creator Kit |
+
+> 当前仓库只有文档，代码目录尚未建立；第一次提交代码前先按 `docs/CONVENTIONS.md` 第 9 节冻结接口。
 
 ## 分工
 
@@ -23,16 +34,17 @@
 
 ## 文档
 
-- [团队统一约定（草案 v0.2）](docs/CONVENTIONS.md)：单位、坐标、命名、所有权、错误处理、撤销边界、接口冻结与 Git 规范。
+- [团队统一约定](docs/CONVENTIONS.md)：单位、坐标、命名、所有权、错误处理、撤销边界、接口冻结与 Git 规范。
+- [已定决策记录](docs/DECISIONS.md)：单位、Qt 基线、`DocumentContext`、文件格式、板框、稳定 ID 的最终结论。
 
-> 约定文档目前是草案，待三人评审后冻结为 v1.0；冻结前以文末“仍需讨论”和 §0 的决策为准。
+> 六项阻塞决策已于 2026-11-02 定稿；后续改动走 PR，接口变更按约定第 9 节执行。
 
 ## 目录（规划）
 
 ```text
 core/      模型、几何、单位、文件、网表
 render/    画布、绘制、拾取、ITool 接口
-app/       主窗口、菜单、撤销栈、DocumentContext
+app/       主窗口、菜单、撤销栈、DocumentContext、Document、服务接口
 feat_fp/   实验一：封装编辑、库管理、校验
 feat_pcb/  实验二：层组、布局、布线、覆铜、DRC
 tests/     Qt Test 与手工用例

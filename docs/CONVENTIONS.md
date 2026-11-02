@@ -1,30 +1,30 @@
 # 团队统一约定
 
-> 状态：草案 v0.2，待三人评审后冻结为 v1.0
+> 状态：v1.1，六项阻塞决策已定稿（2026-11-02）
 > 适用范围：本仓库全部代码、文档、提交与接口
 > 修改方式：提 PR，至少 1 人 review；涉及公开接口的改动按第 9 节执行
 >
-> 阅读顺序：先看 §0 的阻塞决策和十条硬规则；其余条款按需查。
+> 阅读顺序：先看 §0 的已定决策和十条硬规则；细节见 [`DECISIONS.md`](DECISIONS.md)。
 
 ---
 
-## 0. 冻结前必须拍板
+## 0. 已定决策
 
-下面 6 项决定前面所有条款是否成立。第一次课后 48 小时内必须给出结论，并写回本文档。
+六项阻塞决策已定稿，细节和签名见 [`docs/DECISIONS.md`](DECISIONS.md)。本文与 DECISIONS 冲突时，以 DECISIONS 为准。
 
-| # | 决策 | 当前默认 | 所有者 | 备注 |
-|---|---|---|---|---|
-| 1 | 模型内部长度单位 | **mil** | A | 除非全组反对，不再改；界面可显示 mm |
-| 2 | 交付 Qt 基线 | **Qt 6.5** | A/B | 第一次课确认机房版本；开发机 6.11 只作编译环境 |
-| 3 | `DocumentContext` 字段与命令工厂签名 | 待提案 | B | 决定 C 的工具能否开工 |
-| 4 | 文件格式 | `EDA-FP 1` / `EDA-BRD 1` | A | 封装与板分开两套格式、两套解析器 |
-| 5 | 板框与坐标原点 | 矩形优先，多边形只读 | A/C | 原点定义见 §4.2 |
-| 6 | `Track`/`Via`/`CopperPour` 的稳定 ID | 待定 | A | 不提供 ID 时，编辑只能“删除后重画” |
+| # | 决策 | 结论 | 所有者 |
+|---|---|---|---|
+| 1 | 长度单位 | **mil**，模型、界面、文件统一；报告可附 mm | A |
+| 2 | Qt 基线 | **6.11.1**，MSVC2022_64，v143 工具集 | A/B |
+| 3 | `DocumentContext` 与命令 | 会话状态归 `app`；不做大一统工厂，工具构造具体命令并 `pushCommand` | B |
+| 4 | 文件格式 | `EDA-FP 1` / `EDA-BRD 1` / `EDA-LIB 1` | A |
+| 5 | 板框 | 模型和文件允许简单多边形；v1 UI 只做矩形；原点固定 `(0,0)` | A/C |
+| 6 | 稳定 ID | `PadId`、`TrackId`、`ViaId`、`PourId` 全部加，只增不复用 | A |
 
 ## 0.1 十条硬规则
 
 1. **两套坐标**：封装用 footprint-local，板级用 board-world；接口必须标注用哪套。
-2. **单位**：模型内部 mil，换算只在 `core/units.h`，界面标签随显示单位写 `(mil)` 或 `(mm)`。
+2. **单位**：模型、界面、文件统一 mil；换算只在 `core/units.h`，界面标签写 `(mil)`。
 3. **边界**：`core/` 不出现 `QWidget`/`QPainter`；`render/` 不写业务规则。
 4. **撤销**：用户编辑走 `QUndoCommand`；载入、新建、初始构建不走命令；可见性/激活层/选择集是会话状态，不进撤销栈。
 5. **命令所有权**：已有对象用稳定 ID；新建/删除的对象由命令以值或 `unique_ptr` 持有。
@@ -41,19 +41,19 @@
 | 项 | 约定 |
 |---|---|
 | 语言 | C++17，不使用 C++20 及以上特性 |
-| GUI | Qt 6.5+ Widgets，QPainter 自绘 |
+| GUI | Qt **6.11.1** Widgets，QPainter 自绘 |
 | 构建 | CMake 3.21+，开启 `AUTOMOC/AUTOUIC/AUTORCC` |
-| 编译器 | MSVC 2022/2026（优先 v143）或 GCC 11+ |
+| 编译器 | MSVC 2022/2026，优先 **14.44（v143）** |
 | 编码 | UTF-8 无 BOM，换行 LF；MSVC 必须加 `/utf-8` |
-| 平台 | Windows 11 为主；Ubuntu 需自行安装 Qt 6.5 |
+| 平台 | Windows 11 |
 
 约束：
 
-- 只使用 Qt 6.5 已存在的 API，避免演示机版本较低时编译不过。
+- 全组统一 Qt 6.11.1；`find_package(Qt6 6.11.1 REQUIRED)`，不维护 6.5 兼容分支。
 - 新代码不允许新增编译警告；警告不清理不算完成。
 - 不使用异常跨越模块边界；Qt 事件循环里抛异常一律禁止。
-- Ubuntu 22.04 系统仓库的 Qt6 是 6.2.4，不满足基线；其它 Ubuntu 版本的仓库版本也不保证 6.5。统一用 Qt 在线安装器装 6.5，或自带 Windows 环境演示。
-- 本机 Qt 6.11.1 的 `msvc2022_64` 是 v143 构建；v145 能否直接链接未验证，优先 v143，v145 先做链接测试。
+- Qt 6.11.1 的 `msvc2022_64` 是 v143 构建；默认用 14.44 工具集。v145 若链接失败，在 Kit 里换回 14.44，不重装 Qt。
+- 只装 Qt 6.5 的机器不作为构建环境；组员必须安装同一版本。
 
 ---
 
@@ -62,7 +62,7 @@
 ```text
 core/      QtCore/QtGui 值类型：模型、几何、单位、文件、网表
 render/    CanvasWidget、QPainter、QTransform、拾取、ITool 接口
-app/       主窗口、Dock、ToolBar、QUndoStack、DocumentContext
+app/       主窗口、Dock、ToolBar、QUndoStack、DocumentContext、Document、服务接口
 feat_fp/   实验一：封装编辑、库管理、校验、模板
 feat_pcb/  实验二：层组、放置、布局、布线、覆铜、DRC
 tests/     Qt Test 与手工用例
@@ -81,8 +81,10 @@ core  <-  render  <-  app  <-  feat_fp
 - `feat_fp/` 与 `feat_pcb/` 不得互相依赖；共用逻辑上移到 `core/`。
 - 业务类不得继承 `QWidget`；需要交互时实现 `ITool`，由 `CanvasWidget` 调用。
 - 面板控件归 B，面板里的业务规则归 C；控件只发信号，不改模型。
-- `render/` 头文件只**前置声明** `DocumentContext` 和 `QUndoCommand`，不 include `app/*.h`，避免 `render` 与 `app` 形成依赖环；`CanvasWidget` 只透传指针，不解引用。
-- 激活层由 `feat_pcb` 的 `LayerService` 持有；`app` 把它的信号接到 `CanvasWidget::setActiveLayer()`，`render` 不 include `feat_pcb`。
+- 面板只依赖 `app/services.h` 的 `ILibraryService`/`ILayerService` 抽象接口，不 include `feat_fp/*`、`feat_pcb/*`；C 在 `feat_*` 实现，`main.cpp` 负责创建和注入。这样 `app` 与 `feat` 不会互相依赖。
+- `render/` 头文件只**前置声明** `DocumentContext`，不 include `app/*.h`，避免 `render` 与 `app` 形成依赖环；`CanvasWidget` 只透传指针，不解引用。
+- 激活层、层可见性、栅格、选择集是**会话状态**，由 `app` 的 `DocumentContext` 持有；`feat_pcb` 的 `LayerService` 只负责层定义、颜色、`stackOrder` 和层业务，需要激活层/可见性时从 context 读，不缓存。
+- `CanvasWidget` 只提供 `setActiveLayer()`/`setLayerVisible()` 等 setter；`app` 把 `DocumentContext` 的信号接到这些 setter，`render` 不读 context、不 include `feat_pcb`。
 
 ### 2.1 文件所有权
 
@@ -157,8 +159,8 @@ core  <-  render  <-  app  <-  feat_fp
 
 ### 4.1 长度单位
 
-- 模型内部统一用 **mil**，类型 `double`；界面可以显示 mm。
-- 换算只允许在 `core/units.h` 中实现（函数名由 A 定稿，下面是提案）：
+- 模型、界面、文件统一用 **mil**，类型 `double`；v1 不做界面单位切换。
+- 换算只允许在 `core/units.h` 中实现（已定稿）：
 
 ```cpp
 constexpr double kMilPerMm = 39.37007874015748;
@@ -168,7 +170,7 @@ double milToMm(double mil);
 
 - 跨模块的参数和字段，名字带单位后缀：`widthMil`、`gapMil`、`clearanceMil`。
 - 结构体字段可以在注释里标单位，例如 `double drill; // mil`，但同一个结构体内不得混用 mm。
-- 界面标签必须带当前显示单位：`线宽 (mil)`；若切换成 mm，就写 `(mm)`，不能两套同时出现。
+- 界面标签统一写 `线宽 (mil)`；报告和规格表可以附 mm，代码里不出现 mm。
 - 禁止一个表达式里同时出现 mm 和 mil；禁止散落 `0.0254` 之类的魔数。
 
 ### 4.2 坐标
@@ -178,7 +180,7 @@ double milToMm(double mil);
 | 坐标系 | 使用场景 | 原点 |
 |---|---|---|
 | footprint-local | 封装编辑器、`validateFootprint`、封装文件 | 默认取焊盘包围盒中心；模板可另行指定，并在模板说明里写清 |
-| board-world | 板编辑器、`Instance`、`Track`、`Via`、`CopperPour`、DRC、`validatePlacement` | Board 坐标 `(0,0)`；默认取 outline 包围盒左下角，以板文件头为准 |
+| board-world | 板编辑器、`Instance`、`Track`、`Via`、`CopperPour`、DRC、`validatePlacement` | 固定 `(0,0)`；新建板时把 outline 包围盒左下角放在 `(0,0)`，之后不再隐含这个假设 |
 
 - 世界坐标 X 向右，Y 向上。
 - `Instance` 把局部坐标映射到板坐标：先按 `rotation`（度，逆时针）旋转，再平移 `pos`；这个变换只在放置/渲染层做，封装内部数据不改。
@@ -204,20 +206,20 @@ double milToMm(double mil);
 
 ## 5. 所有权与生命周期
 
-- 模型对象由文档对象持有（A 定义的 `Board`/`Footprint` 容器，类名待定）；其他模块只持**非拥有**的裸指针或引用。
-- `app` 层的 `Document`（B 负责）是 `QObject` 包装，持有 A 的模型对象，负责发 `modelChanged` 信号；不要另建第二份模型。
+- 模型对象由 `app` 的 `Document` 持有：`Document : public DocumentContext`，内部持有 `Board`/`Footprint` 和 `QUndoStack`；其他模块只持**非拥有**的裸指针或引用。
+- `Document` 负责实现 `DocumentContext` 的纯虚函数、发 `modelChanged` 信号；不要另建第二份模型。
 - `QObject`/`QWidget` 用父子关系管理生命周期；不要手动 `delete` 有 parent 的对象。
 - 多态丝印图元用 `std::vector<std::unique_ptr<Primitive>>`；`QVector` 只放值类型，不放多态对象。
 - `QUndoStack` 由主窗口持有；命令由工具或画布构造并 `push`，栈接管所有权。
 - 命令引用对象分两种：
-  - **已存在对象**：用稳定 ID（`PadId`、`LayerId`、`refdes`）查找，不存裸指针。
+  - **已存在对象**：用稳定 ID（`PadId`、`TrackId`、`ViaId`、`PourId`、`refdes`）查找，不存裸指针。
   - **新建/删除对象**：命令用值或 `std::unique_ptr` 自己持有，撤销/重做期间对象必须存活。
 - `QUndoStack::clear()` 只在关闭/重载文档时调用，不是每次删除对象都清栈。
 - 下列键创建后不可变，否则撤销栈、网表和库引用会断：
   - `Footprint.id`（`name` 可改，`id` 不改）
   - `refdes`
-  - `Net.name`（若必须改名，用一条原子重命名命令更新所有 `PinRef`、`Track.net`、`CopperPour.net`）
-- `Track`/`Via`/`CopperPour` 若需要编辑，A 要提供稳定 ID；不提供时，编辑只能“删除后重画”。
+  - `Net.name`（v1 不提供重命名 UI；若以后支持，用一条原子命令更新所有引用）
+- `Pad`、`Track`、`Via`、`CopperPour` 全部带稳定 ID（`PadId`/`TrackId`/`ViaId`/`PourId`），只增不复用；详见 `docs/DECISIONS.md` D6。
 - 函数参数约定：
   - 只读：`const T&`
   - 可空：`T*`，并在注释写明“可为 nullptr”
@@ -230,7 +232,7 @@ double milToMm(double mil);
 ## 6. 错误处理
 
 - 不抛异常跨模块；错误通过返回值传递。
-- 统一错误类型放在 `core/status.h`，由 A 定稿。下面是**提案**，不是 C 单方面决定：
+- 统一错误类型放在 `core/status.h`，已定稿；A 实现时可增加辅助函数，但 `ok`/`message` 字段名不变：
 
 ```cpp
 struct Status {
@@ -270,12 +272,13 @@ struct Result {
 - 用户对**文档模型**的编辑必须通过 `QUndoCommand`；直接改字段视为 bug。
 - 载入文件、新建文档、初始化模型不走命令，构建完清空撤销栈。
 - 文件系统操作不进撤销栈：库导入/导出、删除库文件、打开/保存文件都不算模型编辑。
-- 层可见性、激活层、选择集属于会话状态，放 `LayerService`/视图，不进撤销栈，不写进板文件；`Layer` 里的 `visible/active` 只作为运行时字段，保存时跳过。
-- 命令工厂的签名和所有权由 B 在 `app/commands.h` 定义；工具只调用工厂并 `push`。
+- 层可见性、激活层、栅格、选择集属于会话状态，由 `app` 的 `DocumentContext` 持有，不进撤销栈，不写进板文件；`Layer` 里的 `visible/active` 只作为运行时字段，保存时跳过。
+- 不做大一统命令工厂：`DocumentContext::pushCommand(EdaCommand*)` 是唯一入口；命令继承 `app/commands.h` 的 `EdaCommand`，实现 `canApply()`，具体命令类放各自功能模块。
+- 命令在入栈前完成校验：`canApply()` 返回失败时，`pushCommand()` 删除命令、不 push、显示错误；`redo()` 本身不再返回失败。
 - 命令必须可重复撤销/重做，且恢复完全一致的状态。
 - 面板不直接改模型：面板发请求信号，服务或工具构造命令。
 - 批量操作合并为一条命令，避免一次拖动产生几十条撤销记录。
-- `QUndoCommand` 不是 `QObject`，不能 emit 信号。模型变更信号由 `app` 的 `Document`（`QObject`）或 `QUndoStack::indexChanged` 发出；命令只负责 mutate，不负责通知视图。
+- `QUndoCommand` 不是 `QObject`，不能 emit 信号。模型变更信号由 `app` 的 `Document`（继承 `QObject`）或 `QUndoStack::indexChanged` 发出；命令只负责 mutate，不负责通知视图。
 
 ---
 
@@ -320,7 +323,7 @@ struct LayoutResult {
 - 默认参数不得隐藏单位或所有权；能不用就不用。
 - 公开头文件保持最小；实现细节放 `.cpp` 或私有头。
 - 允许返回 `const T&`，但必须注释生命周期（“引用在文档关闭前有效”）；禁止返回非 const 引用，禁止返回局部对象的引用。
-- 命令工厂返回的 `QUndoCommand*` 是所有权转移，调用方负责 `push`；签名注释必须写清。
+- `pushCommand()` 接收的 `EdaCommand*` 是所有权转移：失败时由 `pushCommand()` 删除，成功时由 `QUndoStack` 接管；调用方不得再 `delete`。
 - 接口函数不返回内部容器的可写引用；需要遍历时提供 `const` 范围或拷贝。
 
 ---
@@ -333,19 +336,21 @@ struct LayoutResult {
 
 | 文件 | 所有者 | 使用方 | 冻结内容 |
 |---|---|---|---|
-| `core/types.h` | A | 全员 | `PadId`/`LayerId`、枚举、基础类型 |
+| `core/types.h` | A | 全员 | `PadId`/`TrackId`/`ViaId`/`PourId`/`LayerId`、枚举、基础类型 |
 | `core/units.h` | A | 全员 | mil/mm 换算 |
 | `core/status.h` | A | 全员 | `Status`、`Result<T>` |
 | `core/footprint.h` | A | B/C | `Footprint`、`Pad`、`Pin`、`MountingHole` |
 | `core/board.h` | A | B/C | `Board`、`LayerGroup`、`Instance`、`Track`、`Via`、`CopperPour`、`Net` |
 | `core/geometry.h` | A | C | 距离、包围盒、`padOutline` |
-| `core/io.h` | A | B/C | 封装/板/库/网表的 load/save/parse 签名（格式可晚一周） |
+| `core/io.h` | A | B/C | 封装/板/库/网表的 load/save/parse 签名（格式已定稿，实现可晚） |
 | `render/canvas.h` | B | A/C | `CanvasWidget`、坐标变换、拾取、`setActiveLayer` |
-| `render/tool.h` | B | C | `ITool` 虚函数；只前置声明 `DocumentContext` |
-| `app/document.h` | B | A/C | `Document`、`DocumentContext`、模型变更信号 |
-| `app/commands.h` | B | A/C | 命令工厂与所有权 |
-| `feat_fp/library_service.h` | C | B | 库业务接口，供面板调用 |
-| `feat_pcb/layer_service.h` | C | B/A | 层组业务接口，供面板和工具调用 |
+| `render/tool.h` | B | C | `ITool`、`ToolEvent`、`CanvasView`；只前置声明 `DocumentContext` |
+| `app/document_context.h` | B | A/C | `DocumentContext`、`ObjectRef`、会话状态、模型变更信号 |
+| `app/document.h` | B | A/C | `Document : DocumentContext`，持有模型与 `QUndoStack` |
+| `app/commands.h` | B | A/C | `EdaCommand` 基类与 `canApply()` |
+| `app/services.h` | B | C | `ILibraryService`、`ILayerService` 抽象接口 |
+| `feat_fp/library_service.h` | C | B（经 `ILibraryService`） | `LibraryService` 实现 |
+| `feat_pcb/layer_service.h` | C | B/A（经 `ILayerService`） | `LayerService` 实现 |
 
 ### 9.2 冻结流程
 
@@ -355,7 +360,7 @@ struct LayoutResult {
 4. 跑通最小链路：建封装 → 加焊盘 → 校验 → 布局两个矩形。
 5. 链路通过后才算冻结，在 `docs/interface-changelog.md` 记录日期与版本。
 
-`core/io.h` 的存/读链路等格式定稿后单独验证，不塞进第一次 smoke test。
+`core/io.h` 的存/读链路按已定稿的 D4 格式单独验证，不塞进第一次 smoke test。
 
 ### 9.3 变更规则
 
@@ -373,12 +378,12 @@ struct LayoutResult {
 
 ```cpp
 connect(m_layerPanel, &LayerPanel::activeLayerRequested,
-        m_layerService, &LayerService::setActiveLayer);
+        m_documentContext, &DocumentContext::setActiveLayer);
 ```
 
 - 禁止 `SIGNAL/SLOT` 宏；禁止依赖 `on_<object>_<signal>` 自动连接。
 - 信号用过去式描述已发生的事，槽用祈使式描述要做的动作。
-- 状态只能有一个源：激活层由 `LayerService` 持有，面板只发请求，工具从服务读；`app` 把 `activeLayerChanged` 接到 `CanvasWidget::setActiveLayer()`。
+- 状态只能有一个源：激活层和可见性由 `DocumentContext` 持有，面板只发请求，工具从 context 读；`DocumentContext::activeLayerChanged`/`layerVisibilityChanged` 接到 `CanvasWidget` 的 setter。`LayerService` 不缓存这两个状态，需要时直接读 context。
 - 界面文字一律 `tr()` 或 `QStringLiteral`；不要拼接翻译片段。
 - 业务代码不弹对话框；返回错误，由界面决定怎么显示。
 - 高 DPI（125%/150%）下必须测一次缩放、拾取和文字位置。
@@ -399,7 +404,7 @@ painter->restore();
 ## 11. 文件、编码与保存
 
 - 仓库内文本文件统一 UTF-8 无 BOM、LF 换行，由 `.gitattributes` 约束。
-- 封装与板使用两套格式：`EDA-FP 1`、`EDA-BRD 1`；各自带版本头、各自解析、各自 round-trip 测试。
+- 封装、板、库索引使用三套格式：`EDA-FP 1`、`EDA-BRD 1`、`EDA-LIB 1`；语法和字段见 [`docs/DECISIONS.md`](DECISIONS.md) D4。
 - 保存用 `QSaveFile` + `QTextStream`：
   1. `stream.setEncoding(QStringConverter::Utf8)`；
   2. 写完检查 `stream.status() == QTextStream::Ok`；
@@ -499,7 +504,7 @@ type(scope): 简述
 
 评审时逐条勾，不靠印象：
 
-- [ ] 单位写了吗？是 mil 还是 mm？
+- [ ] 单位写了吗？是 mil 吗？有没有混入 mm？
 - [ ] 坐标系写了吗？footprint-local 还是 board-world？Y 向哪？
 - [ ] 所有权写了吗？谁创建、谁删除、谁持有？
 - [ ] 允许空吗？空了会怎样？
@@ -541,8 +546,7 @@ type(scope): 简述
 
 以下问题不阻塞当前文档，但要在第 10 周前定：
 
-1. 非矩形板框是否允许编辑；若允许，顶点编辑归 C 还是 B。
-2. `Refdes`/`Net.name` 是否提供重命名 UI；若提供，按 §5 的原子重命名执行。
-3. `Track`/`Via`/`CopperPour` 是否新增稳定 ID；不新增时的编辑策略。
-4. 自动布局的范围：只做网格，还是加力导向。
-5. 一键 L/Z 自动布线是否作为加分项实现。
+1. 非矩形板框的顶点编辑 P2 是否做；若做，归 C 还是 B。
+2. `refdes`/`Net.name` 的 v1 重命名 UI 是否做；若做，按 §5 的原子重命名执行。
+3. 自动布局的范围：只做网格，还是加力导向。
+4. 一键 L/Z 自动布线是否作为加分项实现。
