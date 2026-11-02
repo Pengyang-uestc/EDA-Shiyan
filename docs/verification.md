@@ -26,6 +26,13 @@
 
 - 尚未在组内指定的 MSVC v143 套件上重建；本次实际验证使用已安装 MinGW Qt 套件。
 - 未进行 GUI 展示、C 的工艺规则或完整 DIP-8 联调；需要 B/C 接入后共同验证。
+
+## 实验二 A 核心增量
+
+- Qt 6.11.1 MinGW 64 位，ASCII 路径副本配置成功；`eda_core` 与 `eda_core_demo` 编译通过，无编译警告。
+- `test_core` 目标已成功编译但本轮没有运行自动化测试；Board/EDA-BRD/几何与 D4.6 round-trip 自动化覆盖仍需由 C 的测试任务补齐。
+- 独立静态审阅发现的 2 项 Important 与 3 项 Minor 问题均已修复；修复后重新构建 core、demo 和 `test_core`，无编译警告。
+- 中文源路径下 CMake 3.30.5 自动重新配置异常退出；英文路径构建成功。组内 MSVC v143 构建尚未验证。
 - 独立 AI 代码审查不代替团队人工 review；未宣称接口已经三人冻结。
 - 未推送到 GitHub，也未修改 main/dev 的远程状态。
 

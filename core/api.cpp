@@ -48,6 +48,39 @@ Result<Footprint> loadFootprint(const QString& path) {
 Status saveFootprint(const QString& path, const Footprint& f) {
     return operation([&](QString& e) { return detail::saveFootprintImpl(path, f, &e); });
 }
+Status validateBoard(const Board& board, const FootprintResolver& resolveFootprint) {
+    const Status structure = validateBoardStructure(board);
+    if (!structure)
+        return structure;
+    return operation([&](QString& e) {
+        return detail::validateBoardReferencesImpl(board, resolveFootprint, &e);
+    });
+}
+Result<QByteArray> encodeBoard(const Board& board, const FootprintResolver& resolveFootprint) {
+    return result<QByteArray>([&](QByteArray& bytes, QString& e) {
+        const Status status = validateBoard(board, resolveFootprint);
+        if (!status) {
+            e = status.message;
+            return false;
+        }
+        return detail::encodeBoardImpl(board, bytes, &e);
+    });
+}
+Result<Board> decodeBoard(const QByteArray& data, const FootprintResolver& resolveFootprint) {
+    return result<Board>([&](Board& board, QString& e) {
+        return detail::decodeBoardImpl(data, board, resolveFootprint, &e);
+    });
+}
+Status saveBoard(const QString& path, const Board& board, const FootprintResolver& resolveFootprint) {
+    return operation([&](QString& e) {
+        return detail::saveBoardImpl(path, board, resolveFootprint, &e);
+    });
+}
+Result<Board> loadBoard(const QString& path, const FootprintResolver& resolveFootprint) {
+    return result<Board>([&](Board& board, QString& e) {
+        return detail::loadBoardImpl(path, board, resolveFootprint, &e);
+    });
+}
 Result<QVector<LibraryEntry>> FootprintLibrary::list() const {
     return result<QVector<LibraryEntry>>([&](QVector<LibraryEntry>& v, QString& e) { return listImpl(v, &e); });
 }

@@ -77,6 +77,22 @@ ID 使用 1～64 位小写 ASCII 字母、数字、短横线、下划线，首�
 
 `exampleFootprint()` 是包含四种焊盘和五种丝印图元的集成样例，不是经制造验证的 DIP-8。实际 DIP-8 与 RAD 模板由 C 按规格生成。
 
+## 实验二 A 的板级基础（增量）
+
+`core/board.h` 提供 `Board`、层组、板层、实例、走线、过孔、覆铜、网络和网络引脚值模型。`core/geometry.h` 提供 mil 坐标下的面积、简单多边形、点包含、线段相交/距离，以及封装局部坐标与板世界坐标的 D4.6 正反变换和底面层映射。
+
+`core/io.h` 提供 `encodeBoard/decodeBoard/saveBoard/loadBoard`，采用 [DECISIONS.md D4.3](DECISIONS.md#d43-板文件-eda-brd-1) 的 `EDA-BRD 1`。解析支持前向引用，整体校验层组/层、对象 ID、网络、实例、封装和引脚引用；板框载入后规范为逆时针。网络清单是板文件的 `net` 记录，不另设网表文件格式。加载失败不会替换调用方现有模型；保存使用 `QSaveFile` 原子提交。
+
+`FootprintResolver` 返回 `Result<Footprint>`，可直接转接 `FootprintLibrary::load`：
+
+```cpp
+auto boardResult = eda::loadBoard(boardPath, [&](const QString& footprintId) {
+    return library.load(footprintId);
+});
+```
+
+Board 结构检查不执行焊盘间距、最小线宽等制造规则；这些规则仍由 C 实现。track/via/pour 分配器只增不减；耗尽时返回 `kInvalidId`。显式 `insert*` 保留传入 ID，供撤销命令用同一 ID 恢复对象。
+
 ## GitHub 衔接
 
 目标仓库： https://github.com/Pengyang-uestc/EDA-Shiyan

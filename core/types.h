@@ -9,7 +9,11 @@
 #include <QVector>
 namespace eda {
 using PadId = quint64;
+using TrackId = quint64;
+using ViaId = quint64;
+using PourId = quint64;
 using LayerId = int;
+using LayerGroupId = int;
 constexpr quint64 kInvalidId = 0;
 constexpr LayerId kTopCopper = 0;
 constexpr LayerId kBottomCopper = 1;

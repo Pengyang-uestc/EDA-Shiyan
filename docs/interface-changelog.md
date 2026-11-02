@@ -9,4 +9,10 @@
 - 安装孔字段严格按 D4 定稿。
 - 库 list 以扫描 footprints/ 为实时索引；rebuildIndex 写出 EDA-LIB 1 到 index.idx。
 - io、library 是低层结构/存储接口，C 的工艺校验必须先于保存调用。
-- 实验二 Board/geometry/netlist 尚不在此交付范围；不能作为已实现接口引用。
+
+2026-11-02：新增实验二 A 板级核心（待 B/C review，接口仍未冻结）。
+
+- 新增 `Board`/层组/板层/实例/走线/过孔/覆铜/网络模型、稳定 ID 分配和几何 helper。
+- 新增 `EDA-BRD 1` 编码、解析、引用校验、原子保存；网络清单按板文件 `net` 记录解析。
+- `FootprintResolver` 以同步 `Result<Footprint>` 值回传库封装，避免跨层借用生命周期。
+- 未新增独立网表格式、DRC、制造规则、GUI 或 `app/services.h`；C 的 `validation.h` 提案待 A/C 单独确认。
