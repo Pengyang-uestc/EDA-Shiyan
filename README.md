@@ -9,17 +9,6 @@
 
 技术栈：C++17 · Qt 6.11.1 Widgets · QPainter · CMake。
 
-## 构建前提
-
-| 项 | 要求 |
-|---|---|
-| Qt | 6.11.1，`msvc2022_64`，路径 `D:\Qt\6.11.1\msvc2022_64` |
-| 编译器 | VS2026 的 14.44（v143）工具集；v145 未验证 |
-| CMake | 3.21+；可用 `D:\Qt\Tools\CMake_64\bin\cmake.exe` |
-| 环境变量 | `CMAKE_PREFIX_PATH` 指向 `D:\Qt\6.11.1\msvc2022_64`，或用 Qt Creator Kit |
-
-> 当前仓库只有文档，代码目录尚未建立；第一次提交代码前先按 `docs/CONVENTIONS.md` 第 9 节冻结接口。
-
 ## 分工
 
 | 成员 | 角色 | 主要负责 |
@@ -34,19 +23,28 @@
 
 ## 文档
 
-- [团队统一约定](docs/CONVENTIONS.md)：单位、坐标、命名、所有权、错误处理、撤销边界、接口冻结与 Git 规范。
-- [已定决策记录](docs/DECISIONS.md)：单位、Qt 基线、`DocumentContext`、文件格式、板框、稳定 ID 的最终结论。
+- [团队统一约定 v1.1](docs/CONVENTIONS.md)
+- [定稿接口与文件格式](docs/DECISIONS.md)：单位、坐标、命名、所有权、错误处理、撤销边界、接口冻结与 Git 规范。
 
-> 六项阻塞决策已于 2026-11-02 定稿；后续改动走 PR，接口变更按约定第 9 节执行。
+> 约定文档目前是草案，待三人评审后冻结为 v1.0；冻结前以文末“仍需讨论”和 §0 的决策为准。
 
 ## 目录（规划）
 
 ```text
 core/      模型、几何、单位、文件、网表
 render/    画布、绘制、拾取、ITool 接口
-app/       主窗口、菜单、撤销栈、DocumentContext、Document、服务接口
+app/       主窗口、菜单、撤销栈、DocumentContext
 feat_fp/   实验一：封装编辑、库管理、校验
 feat_pcb/  实验二：层组、布局、布线、覆铜、DRC
 tests/     Qt Test 与手工用例
 docs/      方案、约定、接口记录、测试计划、AI 记录
 ```
+
+## 实验一 A 模块（已实现）
+
+- [本机运行与 B/C 接入](docs/A-使用与对接.md)
+- [封装文件格式](docs/footprint-format.md)
+- [接口变更记录](docs/interface-changelog.md)
+- [验证记录](docs/verification.md)
+
+入口是 `CMakeLists.txt`；核心库目标 `eda_core`，命令行演示 `eda_core_demo`，Qt Test 目标 `test_core`。

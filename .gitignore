@@ -45,3 +45,6 @@ Thumbs.db
 *.rar
 *.7z
 *.tmp
+# Local verification artifacts
+/.tools/
+/demo-library/
