@@ -1,0 +1,47 @@
+# 构建目录
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+CMakeUserPresets.json
+
+# Qt 生成文件
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.moc
+.qmake.stash
+Makefile
+Makefile.*
+
+# MSVC / 链接产物
+.vs/
+*.user
+*.suo
+*.obj
+*.ilk
+*.pdb
+*.exp
+*.lib
+*.dll
+*.exe
+*.idb
+
+# IDE
+.vscode/
+.idea/
+*.autosave
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 压缩包与临时文件
+*.zip
+*.rar
+*.7z
+*.tmp
