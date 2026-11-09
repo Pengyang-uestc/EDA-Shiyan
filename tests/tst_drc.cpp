@@ -95,6 +95,8 @@ void addLayer(Board& board, LayerId id, LayerGroupId groupId, const QString& nam
 Board makeBoard(const QString& footprintId = QStringLiteral("single"))
 {
     Board board;
+    board.outline << QPointF(0, 0) << QPointF(2000, 0)
+                  << QPointF(2000, 1000) << QPointF(0, 1000);
     board.groups.append(LayerGroup{1, QStringLiteral("Top"), 0});
     board.groups.append(LayerGroup{2, QStringLiteral("Bottom"), 1});
     addLayer(board, kTopCopper, 1, QStringLiteral("Top Copper"),
@@ -217,6 +219,9 @@ private slots:
     void trackPourTooClose();
     void viaPourTooClose();
     void pourPourTooClose();
+    void boardEdgeChecks();
+    void boardEdgeBoundaryPasses();
+    void boardEdgeSwitchDisables();
     void missingFootprintReportsError();
 };
 
@@ -289,9 +294,9 @@ void TestDrc::sameNetTrackTrackIgnored()
 void TestDrc::differentLayerIgnored()
 {
     Board board = makeBoard(QStringLiteral("smd"));
-    addTrack(board, {QPointF(0, 500), QPointF(1000, 500)},
+    addTrack(board, {QPointF(500, 500), QPointF(1000, 500)},
              kTopCopper, QStringLiteral("N001"));
-    addTrack(board, {QPointF(0, 510), QPointF(1000, 510)},
+    addTrack(board, {QPointF(500, 510), QPointF(1000, 510)},
              kBottomCopper, QStringLiteral("OTHER"));
     QVERIFY(runDrc(board, resolver()).clean());
 }
@@ -568,6 +573,93 @@ void TestDrc::pourPourTooClose()
             QVERIFY(matched);
         }
     }
+}
+
+void TestDrc::boardEdgeChecks()
+{
+    Board trackBoard = makeBoard();
+    const TrackId trackId = addTrack(
+        trackBoard, {QPointF(500, 5), QPointF(1000, 5)}, kTopCopper,
+        QStringLiteral("N001"));
+    const DrcResult trackResult = runDrc(trackBoard, resolver());
+    QVERIFY(hasViolation(trackResult, drc_code::kTrackEdgeClearance));
+    for (const DrcViolation& violation : trackResult.violations) {
+        if (violation.code == drc_code::kTrackEdgeClearance) {
+            QCOMPARE(violation.trackIdA, trackId);
+        }
+    }
+
+    Board padBoard = makeBoard();
+    padBoard.instances[0].pos = QPointF(10, 500);
+    const DrcResult padResult = runDrc(padBoard, resolver());
+    QVERIFY(hasViolation(padResult, drc_code::kPadEdgeClearance));
+    for (const DrcViolation& violation : padResult.violations) {
+        if (violation.code == drc_code::kPadEdgeClearance) {
+            QCOMPARE(violation.refdes, QStringLiteral("U1"));
+            QCOMPARE(violation.padId, PadId(1));
+        }
+    }
+
+    Board outsideBoard = makeBoard();
+    outsideBoard.instances[0].pos = QPointF(-100, 500);
+    QVERIFY(hasViolation(runDrc(outsideBoard, resolver()),
+                         drc_code::kPadEdgeClearance));
+
+    Board viaBoard = makeBoard();
+    const ViaId viaId = addVia(viaBoard, QPointF(10, 500), QStringLiteral("V"));
+    const DrcResult viaResult = runDrc(viaBoard, resolver());
+    QVERIFY(hasViolation(viaResult, drc_code::kViaEdgeClearance));
+    for (const DrcViolation& violation : viaResult.violations) {
+        if (violation.code == drc_code::kViaEdgeClearance) {
+            QCOMPARE(violation.viaId, viaId);
+        }
+    }
+
+    Board pourBoard = makeBoard();
+    const PourId pourId = addPour(
+        pourBoard, polygon({{10, 10}, {100, 10}, {100, 100}, {10, 100}}),
+        kTopCopper, QStringLiteral("P"));
+    const DrcResult pourResult = runDrc(pourBoard, resolver());
+    QVERIFY(hasViolation(pourResult, drc_code::kPourEdgeClearance));
+    for (const DrcViolation& violation : pourResult.violations) {
+        if (violation.code == drc_code::kPourEdgeClearance) {
+            QCOMPARE(violation.pourId, pourId);
+        }
+    }
+}
+
+void TestDrc::boardEdgeBoundaryPasses()
+{
+    Board board = makeBoard();
+    // 26 - 12/2 = 20 mil，刚好等于默认板边间距。
+    addTrack(board, {QPointF(500, 26), QPointF(1000, 26)}, kTopCopper,
+             QStringLiteral("N001"));
+    QVERIFY(!hasViolation(runDrc(board, resolver()),
+                          drc_code::kTrackEdgeClearance));
+
+    Board padBoard = makeBoard();
+    padBoard.instances[0].pos = QPointF(50, 500);   // 50 - 30 = 20
+    QVERIFY(!hasViolation(runDrc(padBoard, resolver()),
+                          drc_code::kPadEdgeClearance));
+}
+
+void TestDrc::boardEdgeSwitchDisables()
+{
+    Board board = makeBoard();
+    addTrack(board, {QPointF(500, 5), QPointF(1000, 5)}, kTopCopper,
+             QStringLiteral("N001"));
+    addVia(board, QPointF(10, 500), QStringLiteral("V"));
+    addPour(board, polygon({{10, 10}, {100, 10}, {100, 100}, {10, 100}}),
+            kTopCopper, QStringLiteral("P"));
+    board.instances[0].pos = QPointF(10, 500);
+
+    DrcRules rules;
+    rules.checkBoardEdge = false;
+    const DrcResult result = runDrc(board, resolver(), rules);
+    QVERIFY(!hasViolation(result, drc_code::kTrackEdgeClearance));
+    QVERIFY(!hasViolation(result, drc_code::kPadEdgeClearance));
+    QVERIFY(!hasViolation(result, drc_code::kViaEdgeClearance));
+    QVERIFY(!hasViolation(result, drc_code::kPourEdgeClearance));
 }
 
 void TestDrc::missingFootprintReportsError()

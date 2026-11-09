@@ -3,6 +3,7 @@
 #include "core/board.h"
 #include "core/io.h"
 #include "core/footprint.h"
+#include "core/manufacturing_rules.h"
 
 #include <QString>
 #include <QStringList>
@@ -20,10 +21,16 @@ inline const QString kPadPourClearance = QStringLiteral("PAD_POUR_CLEARANCE");
 inline const QString kTrackPourClearance = QStringLiteral("TRACK_POUR_CLEARANCE");
 inline const QString kViaPourClearance = QStringLiteral("VIA_POUR_CLEARANCE");
 inline const QString kPourPourClearance = QStringLiteral("POUR_POUR_CLEARANCE");
+inline const QString kPadEdgeClearance = QStringLiteral("PAD_EDGE_CLEARANCE");
+inline const QString kTrackEdgeClearance = QStringLiteral("TRACK_EDGE_CLEARANCE");
+inline const QString kViaEdgeClearance = QStringLiteral("VIA_EDGE_CLEARANCE");
+inline const QString kPourEdgeClearance = QStringLiteral("POUR_EDGE_CLEARANCE");
 } // namespace drc_code
 
 struct DrcRules {
-    double minClearanceMil = 7.874;   // 0.2 mm
+    double minClearanceMil = 7.874;        // 0.2 mm
+    double boardEdgeClearanceMil = validation::kMinBoardEdgeClearanceMil;
+    bool checkBoardEdge = true;
     bool checkPadTrack = true;
     bool checkTrackTrack = true;
     bool checkViaTrack = true;
@@ -58,7 +65,7 @@ struct DrcResult {
     QVector<DrcViolation> violations;
     QStringList errors;   // 封装/焊盘解析失败等
 
-    // 只表示本模块覆盖的检查通过；板边间距、完整制造规则仍不在本函数内。
+    // 只表示本文件列出的间距检查（含板边）通过；丝印/阻焊等规则不在本函数内。
     [[nodiscard]] bool clean() const {
         return violations.isEmpty() && errors.isEmpty();
     }
@@ -71,6 +78,7 @@ struct DrcResult {
 // pad-track/pad-via 的 required 取 max(pad.clearance, minClearance)；
 // pad-pour 取 max(pad.clearance, pour.clearance, minClearance)；
 // track-pour/via-pour 取 max(pour.clearance, minClearance)。
+// 板边检查：焊盘/走线/过孔/覆铜到板框边的距离 >= boardEdgeClearanceMil。
 // 焊盘制造规则由 board_validation 负责，本函数只做间距。
 [[nodiscard]] DrcResult runDrc(const Board& board,
                                const FootprintResolver& resolveFootprint,

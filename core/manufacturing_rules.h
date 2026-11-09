@@ -11,6 +11,7 @@ inline constexpr double kMaxMaskMarginMil = 7.874;
 inline constexpr double kMinClearanceMil = 7.874;
 inline constexpr double kMinSilkWidthMil = 6.0;
 inline constexpr double kMinTrackWidthMil = 6.0;
+inline constexpr double kMinBoardEdgeClearanceMil = 20.0;
 
 [[nodiscard]] bool drillOk(double drillMil);
 [[nodiscard]] bool annularRingOk(double padWidthMil,

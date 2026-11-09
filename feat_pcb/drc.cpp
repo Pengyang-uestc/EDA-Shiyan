@@ -43,6 +43,67 @@ bool viaTouchesCopperLayer(const Via& via, LayerId layer)
     return throughTopBottom;
 }
 
+
+double distancePointToOutlineEdges(QPointF point, const QPolygonF& outline)
+{
+    double minimum = std::numeric_limits<double>::infinity();
+    for (qsizetype i = 0; i < outline.size(); ++i) {
+        minimum = std::min(
+            minimum,
+            distancePointToSegment(point, outline[i],
+                                   outline[(i + 1) % outline.size()]));
+    }
+    return minimum;
+}
+
+double distanceSegmentToOutlineEdges(QPointF a, QPointF b,
+                                     const QPolygonF& outline)
+{
+    double minimum = std::numeric_limits<double>::infinity();
+    for (qsizetype i = 0; i < outline.size(); ++i) {
+        minimum = std::min(
+            minimum,
+            distanceSegmentToSegment(a, b, outline[i],
+                                     outline[(i + 1) % outline.size()]));
+    }
+    return minimum;
+}
+
+double distancePolygonToOutlineEdges(const QPolygonF& polygon,
+                                     const QPolygonF& outline)
+{
+    double minimum = std::numeric_limits<double>::infinity();
+    for (qsizetype i = 0; i < polygon.size(); ++i) {
+        minimum = std::min(
+            minimum,
+            distanceSegmentToOutlineEdges(polygon[i],
+                                          polygon[(i + 1) % polygon.size()],
+                                          outline));
+    }
+    return minimum;
+}
+
+bool polygonInsideOutline(const QPolygonF& polygon, const QPolygonF& outline)
+{
+    for (const QPointF& point : polygon) {
+        if (!containsPoint(outline, point)) {
+            return false;
+        }
+    }
+    // 凹形板框里，顶点都在内、边仍可能跨出缺口；距离函数会兜底，
+    // 但这里显式检查边相交，避免以后换成“点到填充区域”后漏判。
+    for (qsizetype i = 0; i < polygon.size(); ++i) {
+        for (qsizetype j = 0; j < outline.size(); ++j) {
+            if (segmentsIntersect(polygon[i], polygon[(i + 1) % polygon.size()],
+                                  outline[j], outline[(j + 1) % outline.size()],
+                                  kEpsilonMil)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool layersShare(const QVector<LayerId>& a, const QVector<LayerId>& b)
 {
     for (LayerId layer : a) {
@@ -495,6 +556,118 @@ DrcResult runDrc(const Board& board, const FootprintResolver& resolveFootprint,
                     violation.netB = track.net;
                     result.violations.append(violation);
                 }
+            }
+        }
+    }
+
+    if (rules.checkBoardEdge) {
+        const double required = rules.boardEdgeClearanceMil;
+
+        for (const PadInstance& pad : pads) {
+            double actual = 0.0;
+            if (pad.pad.shape == PadShape::Circle) {
+                const QPointF center = footprintToBoard(
+                    pad.pad.pos, pad.instancePos, pad.rotationDeg, pad.side);
+                if (containsPoint(board.outline, center)) {
+                    const double radius =
+                        std::min(pad.pad.size.width(), pad.pad.size.height()) / 2.0;
+                    actual = std::max(
+                        0.0, distancePointToOutlineEdges(center, board.outline)
+                                 - radius);
+                }
+            } else {
+                const QPolygonF outline =
+                    padOutlineOnBoard(pad.pad, pad.instancePos, pad.rotationDeg,
+                                      pad.side);
+                actual = polygonInsideOutline(outline, board.outline)
+                             ? distancePolygonToOutlineEdges(outline, board.outline)
+                             : 0.0;
+            }
+            if (actual + kEpsilonMil < required) {
+                DrcViolation violation = makeViolation(
+                    drc_code::kPadEdgeClearance,
+                    QStringLiteral("实例 %1 的焊盘 %2 到板框边距离 %3 mil，小于 %4 mil")
+                        .arg(pad.refdes)
+                        .arg(pad.pad.number)
+                        .arg(actual, 0, 'f', 3)
+                        .arg(required, 0, 'f', 3),
+                    actual, required);
+                violation.refdes = pad.refdes;
+                violation.padId = pad.pad.id;
+                result.violations.append(violation);
+            }
+        }
+
+        for (const Track& track : board.tracks) {
+            bool inside = true;
+            for (const QPointF& point : track.points) {
+                if (!containsPoint(board.outline, point)) {
+                    inside = false;
+                    break;
+                }
+            }
+            double actual = 0.0;
+            if (inside) {
+                double minimum = std::numeric_limits<double>::infinity();
+                for (qsizetype i = 0; i + 1 < track.points.size(); ++i) {
+                    minimum = std::min(
+                        minimum,
+                        std::max(0.0,
+                                 distanceSegmentToOutlineEdges(
+                                     track.points[i], track.points[i + 1],
+                                     board.outline)
+                                     - track.width / 2.0));
+                }
+                actual = std::isfinite(minimum) ? minimum : 0.0;
+            }
+            if (actual + kEpsilonMil < required) {
+                DrcViolation violation = makeViolation(
+                    drc_code::kTrackEdgeClearance,
+                    QStringLiteral("走线 %1 到板框边距离 %2 mil，小于 %3 mil")
+                        .arg(track.id)
+                        .arg(actual, 0, 'f', 3)
+                        .arg(required, 0, 'f', 3),
+                    actual, required);
+                violation.trackIdA = track.id;
+                result.violations.append(violation);
+            }
+        }
+
+        for (const Via& via : board.vias) {
+            const double actual = containsPoint(board.outline, via.pos)
+                                      ? std::max(0.0,
+                                                 distancePointToOutlineEdges(
+                                                     via.pos, board.outline)
+                                                     - via.diameter / 2.0)
+                                      : 0.0;
+            if (actual + kEpsilonMil < required) {
+                DrcViolation violation = makeViolation(
+                    drc_code::kViaEdgeClearance,
+                    QStringLiteral("过孔 %1 到板框边距离 %2 mil，小于 %3 mil")
+                        .arg(via.id)
+                        .arg(actual, 0, 'f', 3)
+                        .arg(required, 0, 'f', 3),
+                    actual, required);
+                violation.viaId = via.id;
+                result.violations.append(violation);
+            }
+        }
+
+        for (const CopperPour& pour : board.pours) {
+            const double actual = polygonInsideOutline(pour.points, board.outline)
+                                      ? distancePolygonToOutlineEdges(
+                                            pour.points, board.outline)
+                                      : 0.0;
+            if (actual + kEpsilonMil < required) {
+                DrcViolation violation = makeViolation(
+                    drc_code::kPourEdgeClearance,
+                    QStringLiteral("覆铜 %1 到板框边距离 %2 mil，小于 %3 mil")
+                        .arg(pour.id)
+                        .arg(actual, 0, 'f', 3)
+                        .arg(required, 0, 'f', 3),
+                    actual, required);
+                violation.pourId = pour.id;
+                result.violations.append(violation);
             }
         }
     }
