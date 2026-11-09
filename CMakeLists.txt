@@ -9,7 +9,9 @@ set(CMAKE_AUTORCC ON)
 option(BUILD_TESTING "Build core tests" ON)
 enable_testing()
 find_package(Qt6 6.11.1 REQUIRED COMPONENTS Core Gui Widgets Test)
-add_library(eda_core core/footprint.cpp core/footprint_io.cpp core/library.cpp core/api.cpp)
+add_library(eda_core core/footprint.cpp core/footprint_io.cpp core/library.cpp core/api.cpp
+  core/board.cpp core/board_io.cpp core/netlist_io.cpp core/geometry.cpp
+  core/manufacturing_rules.cpp)
 target_include_directories(eda_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(eda_core PUBLIC Qt6::Core Qt6::Gui)
 if(MSVC)
@@ -21,8 +23,46 @@ else()
 endif()
 add_executable(eda_core_demo examples/core_demo.cpp)
 target_link_libraries(eda_core_demo PRIVATE eda_core)
+add_executable(eda_board_demo examples/board_demo.cpp)
+target_link_libraries(eda_board_demo PRIVATE eda_core)
+
+add_library(eda_features
+  feat_fp/basic_commands.cpp feat_fp/footprint_templates.cpp feat_fp/footprint_validation.cpp)
+target_link_libraries(eda_features PUBLIC eda_core Qt6::Widgets)
+add_library(eda_pcb_features
+  feat_pcb/board_commands.cpp feat_pcb/board_validation.cpp feat_pcb/connectivity.cpp
+  feat_pcb/copper_pour.cpp feat_pcb/pad_geometry.cpp feat_pcb/drc.cpp
+  feat_pcb/netlist_service.cpp feat_pcb/grid_layout.cpp feat_pcb/orthogonal_router.cpp
+  feat_pcb/layout_service.cpp feat_pcb/layer_service.cpp feat_pcb/layer_model.cpp
+  feat_pcb/union_find.cpp)
+target_link_libraries(eda_pcb_features PUBLIC eda_core Qt6::Widgets)
+add_library(eda_app app/document_context.cpp app/document.h app/documents.cpp app/demo_documents.cpp
+  app/local_services.cpp app/main_window.cpp app/panels.cpp render/canvas.cpp render/board_tools.cpp)
+target_link_libraries(eda_app PUBLIC eda_features eda_pcb_features Qt6::Widgets)
+add_executable(eda_gui app/main.cpp)
+target_link_libraries(eda_gui PRIVATE eda_app)
+option(EDA_DEFAULT_BOARD_DEMO "Open the PCB demonstration on startup" ON)
+if(EDA_DEFAULT_BOARD_DEMO)
+  target_compile_definitions(eda_gui PRIVATE EDA_DEFAULT_BOARD_DEMO=1)
+endif()
 if(BUILD_TESTING)
   add_executable(test_core tests/tst_core.cpp)
   target_link_libraries(test_core PRIVATE eda_core Qt6::Test)
   add_test(NAME core COMMAND test_core)
+  function(eda_test name source library)
+    add_executable(test_${name} tests/tst_${source}.cpp)
+    target_link_libraries(test_${name} PRIVATE ${library} Qt6::Test)
+    add_test(NAME ${name} COMMAND test_${name})
+  endfunction()
+  eda_test(b_gui b eda_app)
+  set_tests_properties(b_gui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  eda_test(c_board board eda_core)
+  eda_test(c_geometry geometry eda_core)
+  foreach(name footprint_templates footprint_validation)
+    eda_test(${name} ${name} eda_features)
+  endforeach()
+  foreach(name board_validation connectivity copper_pour pad_geometry drc netlist_service
+      grid_layout orthogonal_router layout_service layer_service layer_model)
+    eda_test(c_${name} ${name} eda_pcb_features)
+  endforeach()
 endif()

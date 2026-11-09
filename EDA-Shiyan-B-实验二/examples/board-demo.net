@@ -1,4 +1,0 @@
-# The footprint ID refers to footprints/example.fp.
-COMP U1 example
-COMP U2 example
-NET N001 U1.1 U2.2
