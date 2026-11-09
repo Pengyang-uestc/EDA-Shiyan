@@ -1,0 +1,21 @@
+EDA-BRD 1
+units mil
+group 1 "Top" 0
+group 2 "Bottom" 1
+group 3 "Mechanical" 2
+layer 0 1 "Top Copper" copper #C83232 0
+layer 1 2 "Bottom Copper" copper #3264C8 0
+layer 2 1 "Top Silk" silk #F0F0F0 1
+layer 3 2 "Bottom Silk" silk #BEBEBE 1
+layer 4 1 "Top Mask" mask #258050 2
+layer 5 2 "Bottom Mask" mask #186640 2
+layer 6 3 "Board Outline" outline #FFFFFF 0
+outline 4 0 0 1600 0 1600 900 0 900
+instance U1 example 300 400 0 top
+instance U2 example 1150 400 0 bottom
+track 1 0 12 N001 2 300 400 700 400
+track 2 1 12 N001 2 700 400 1050 400
+via 1 700 400 24 40 0 1 N001
+pour 1 1 N001 10 0 4 600 300 1000 300 1000 500 600 500
+net N001 2 U1.1 U2.2
+end
