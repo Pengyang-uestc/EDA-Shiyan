@@ -29,7 +29,7 @@ class CoreTest : public QObject {
         QVERIFY(!result.value.has_value());
         QVERIFY(result.status.message.contains(QStringLiteral("第 5 行")));
         auto invalidUtf8 = data;
-        invalidUtf8.append(char(0xff));
+        invalidUtf8.append('\xFF');
         QVERIFY(!decodeFootprint(invalidUtf8).status.ok);
         auto invalid = exampleFootprint();
         invalid.silk.push_back(nullptr);
