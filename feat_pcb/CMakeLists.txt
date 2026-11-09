@@ -6,6 +6,7 @@ add_library(eda_pcb_features STATIC
     netlist_service.cpp
     grid_layout.cpp
     orthogonal_router.cpp
+    layout_service.cpp
     union_find.cpp)
 
 target_link_libraries(eda_pcb_features PUBLIC eda_core)
@@ -45,4 +46,9 @@ if (BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}/tests/tst_orthogonal_router.cpp)
     target_link_libraries(test_c_orthogonal_router PRIVATE eda_pcb_features Qt6::Test)
     add_test(NAME c_orthogonal_router COMMAND test_c_orthogonal_router)
+
+    add_executable(test_c_layout_service
+        ${CMAKE_SOURCE_DIR}/tests/tst_layout_service.cpp)
+    target_link_libraries(test_c_layout_service PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_layout_service COMMAND test_c_layout_service)
 endif()

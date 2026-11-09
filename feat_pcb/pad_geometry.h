@@ -55,6 +55,13 @@ namespace eda {
                                           BoardSide side,
                                           const QPolygonF& polygon);
 
+// 封装局部包围盒（含焊盘和丝印）；无图元时返回 100×100 的占位框。
+[[nodiscard]] QRectF footprintBounds(const Footprint& footprint);
+
+// 实例在板级坐标下的轴对齐包围盒（含旋转/底面）。
+[[nodiscard]] QRectF instanceBounds(const Instance& instance,
+                                    const Footprint& footprint);
+
 // 通孔焊盘返回所有铜层；SMD 只返回映射后的本层。
 // copperLayers 为空时退化为顶层/底层铜（兼容旧调用）。
 [[nodiscard]] QVector<LayerId> padCopperLayers(

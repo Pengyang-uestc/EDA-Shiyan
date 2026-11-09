@@ -1,7 +1,7 @@
 #include "feat_pcb/netlist_service.h"
 
 #include "core/geometry.h"
-#include "core/primitive.h"
+#include "feat_pcb/pad_geometry.h"
 
 #include <QFile>
 #include <QHash>
@@ -20,79 +20,6 @@ namespace {
 Result<NetlistImportResult> fail(const QString& message)
 {
     return {Status::failure(message), std::nullopt};
-}
-
-QRectF footprintBounds(const Footprint& footprint)
-{
-    QRectF bounds;
-    bool first = true;
-    auto include = [&](const QRectF& rect) {
-        if (!rect.isValid()) {
-            return;
-        }
-        bounds = first ? rect : bounds.united(rect);
-        first = false;
-    };
-
-    for (const Pad& pad : footprint.pads) {
-        include(QRectF(pad.pos.x() - pad.size.width() / 2.0,
-                       pad.pos.y() - pad.size.height() / 2.0,
-                       pad.size.width(),
-                       pad.size.height()));
-    }
-
-    for (const auto& primitive : footprint.silk) {
-        if (!primitive) {
-            continue;
-        }
-        switch (primitive->kind()) {
-        case PrimitiveKind::Line: {
-            const auto* line = dynamic_cast<const SilkLine*>(primitive.get());
-            if (line) {
-                include(QRectF(line->a, line->b).normalized());
-            }
-            break;
-        }
-        case PrimitiveKind::Arc: {
-            const auto* arc = dynamic_cast<const SilkArc*>(primitive.get());
-            if (arc) {
-                include(QRectF(arc->center.x() - arc->radius,
-                               arc->center.y() - arc->radius,
-                               arc->radius * 2.0, arc->radius * 2.0));
-            }
-            break;
-        }
-        case PrimitiveKind::Rect: {
-            const auto* rect = dynamic_cast<const SilkRect*>(primitive.get());
-            if (rect) {
-                include(rect->rect.normalized());
-            }
-            break;
-        }
-        case PrimitiveKind::Polygon: {
-            const auto* polygon = dynamic_cast<const SilkPolygon*>(primitive.get());
-            if (polygon) {
-                include(polygon->points.boundingRect());
-            }
-            break;
-        }
-        case PrimitiveKind::Text: {
-            const auto* text = dynamic_cast<const SilkText*>(primitive.get());
-            if (text) {
-                const double width = std::max(text->height,
-                                              text->text.size() * text->height * 0.6);
-                include(QRectF(text->pos.x(), text->pos.y() - text->height,
-                               width, text->height * 1.4));
-            }
-            break;
-        }
-        }
-    }
-
-    if (first) {
-        return QRectF(-50, -50, 100, 100);
-    }
-    return bounds;
 }
 
 void addLayer(Board& board, LayerId id, LayerGroupId groupId,

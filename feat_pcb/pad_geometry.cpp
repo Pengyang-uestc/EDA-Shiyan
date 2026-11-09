@@ -1,8 +1,10 @@
 #include "feat_pcb/pad_geometry.h"
 
 #include "core/geometry.h"
+#include "core/primitive.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -196,6 +198,108 @@ double distancePadToPad(const Pad& a, QPointF instancePosA, double rotationDegA,
                                  - shapeRadius(b));
     }
     return distancePolygonToPolygon(outlineA, outlineB);
+}
+
+QRectF footprintBounds(const Footprint& footprint)
+{
+    QRectF bounds;
+    bool first = true;
+    auto include = [&](const QRectF& rect) {
+        if (!rect.isValid()) {
+            return;
+        }
+        bounds = first ? rect : bounds.united(rect);
+        first = false;
+    };
+
+    for (const Pad& pad : footprint.pads) {
+        include(QRectF(pad.pos.x() - pad.size.width() / 2.0,
+                       pad.pos.y() - pad.size.height() / 2.0,
+                       pad.size.width(), pad.size.height()));
+    }
+    for (const MountingHole& hole : footprint.holes) {
+        const double radius = hole.drill / 2.0 + hole.keepout;
+        include(QRectF(hole.pos.x() - radius, hole.pos.y() - radius,
+                       radius * 2.0, radius * 2.0));
+    }
+
+    for (const auto& primitive : footprint.silk) {
+        if (!primitive) {
+            continue;
+        }
+        switch (primitive->kind()) {
+        case PrimitiveKind::Line: {
+            const auto* line = dynamic_cast<const SilkLine*>(primitive.get());
+            if (line) {
+                include(QRectF(line->a, line->b).normalized());
+            }
+            break;
+        }
+        case PrimitiveKind::Arc: {
+            const auto* arc = dynamic_cast<const SilkArc*>(primitive.get());
+            if (arc) {
+                include(QRectF(arc->center.x() - arc->radius,
+                               arc->center.y() - arc->radius,
+                               arc->radius * 2.0, arc->radius * 2.0));
+            }
+            break;
+        }
+        case PrimitiveKind::Rect: {
+            const auto* rect = dynamic_cast<const SilkRect*>(primitive.get());
+            if (rect) {
+                include(rect->rect.normalized());
+            }
+            break;
+        }
+        case PrimitiveKind::Polygon: {
+            const auto* polygon = dynamic_cast<const SilkPolygon*>(primitive.get());
+            if (polygon) {
+                include(polygon->points.boundingRect());
+            }
+            break;
+        }
+        case PrimitiveKind::Text: {
+            const auto* text = dynamic_cast<const SilkText*>(primitive.get());
+            if (text) {
+                const double width = std::max(text->height,
+                                              text->text.size() * text->height * 0.6);
+                include(QRectF(text->pos.x(), text->pos.y() - text->height,
+                               width, text->height * 1.4));
+            }
+            break;
+        }
+        }
+    }
+    return first ? QRectF(-50, -50, 100, 100) : bounds;
+}
+
+QRectF instanceBounds(const Instance& instance, const Footprint& footprint)
+{
+    const QRectF local = footprintBounds(footprint);
+    const std::array<QPointF, 4> corners{
+        local.topLeft(), local.topRight(),
+        local.bottomRight(), local.bottomLeft()};
+    double minX = 0.0;
+    double minY = 0.0;
+    double maxX = 0.0;
+    double maxY = 0.0;
+    bool first = true;
+    for (const QPointF& corner : corners) {
+        const QPointF board = footprintToBoard(corner, instance.pos,
+                                               instance.rotationDeg,
+                                               instance.side);
+        if (first) {
+            minX = maxX = board.x();
+            minY = maxY = board.y();
+            first = false;
+        } else {
+            minX = std::min(minX, board.x());
+            maxX = std::max(maxX, board.x());
+            minY = std::min(minY, board.y());
+            maxY = std::max(maxY, board.y());
+        }
+    }
+    return QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
 }
 
 QVector<LayerId> padCopperLayers(const Pad& pad, BoardSide side,
