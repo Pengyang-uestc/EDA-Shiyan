@@ -10,6 +10,9 @@
 
 namespace eda {
 
+// 网表初始布局：以 origin 为左上角、按全局最大 cell 排列，用于导入后立刻有可用板面。
+// 它与 grid_layout.h 的 gridLayout()（整组居中、每列/每行取最大尺寸）是两套语义；
+// B 的“自动布局”按钮应调用 gridLayout()/后续 layoutInstances()，不要复用本服务的初始坐标。
 struct NetlistImportOptions {
     QPointF origin{200, 200};
     double gapMil = 100.0;
