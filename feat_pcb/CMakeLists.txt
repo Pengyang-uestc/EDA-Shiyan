@@ -1,9 +1,14 @@
 add_library(eda_pcb_features STATIC
     board_validation.cpp
     connectivity.cpp
+    copper_pour.cpp
     pad_geometry.cpp
     drc.cpp
     netlist_service.cpp
+    grid_layout.cpp
+    orthogonal_router.cpp
+    layout_service.cpp
+    layer_service.cpp
     union_find.cpp)
 
 target_link_libraries(eda_pcb_features PUBLIC eda_core)
@@ -33,4 +38,29 @@ if (BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}/tests/tst_netlist_service.cpp)
     target_link_libraries(test_c_netlist_service PRIVATE eda_pcb_features Qt6::Test)
     add_test(NAME c_netlist_service COMMAND test_c_netlist_service)
+
+    add_executable(test_c_grid_layout
+        ${CMAKE_SOURCE_DIR}/tests/tst_grid_layout.cpp)
+    target_link_libraries(test_c_grid_layout PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_grid_layout COMMAND test_c_grid_layout)
+
+    add_executable(test_c_orthogonal_router
+        ${CMAKE_SOURCE_DIR}/tests/tst_orthogonal_router.cpp)
+    target_link_libraries(test_c_orthogonal_router PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_orthogonal_router COMMAND test_c_orthogonal_router)
+
+    add_executable(test_c_layout_service
+        ${CMAKE_SOURCE_DIR}/tests/tst_layout_service.cpp)
+    target_link_libraries(test_c_layout_service PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_layout_service COMMAND test_c_layout_service)
+
+    add_executable(test_c_copper_pour
+        ${CMAKE_SOURCE_DIR}/tests/tst_copper_pour.cpp)
+    target_link_libraries(test_c_copper_pour PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_copper_pour COMMAND test_c_copper_pour)
+
+    add_executable(test_c_layer_service
+        ${CMAKE_SOURCE_DIR}/tests/tst_layer_service.cpp)
+    target_link_libraries(test_c_layer_service PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_layer_service COMMAND test_c_layer_service)
 endif()
