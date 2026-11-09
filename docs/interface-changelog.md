@@ -16,3 +16,9 @@
 - 新增 `EDA-BRD 1` 编码、解析、引用校验、原子保存；网络清单按板文件 `net` 记录解析。
 - `FootprintResolver` 以同步 `Result<Footprint>` 值回传库封装，避免跨层借用生命周期。
 - 未新增独立网表格式、DRC、制造规则、GUI 或 `app/services.h`；C 的 `validation.h` 提案待 A/C 单独确认。
+
+2026-11-09：补全实验二 A 接口。
+
+- 新增 `decodeNetlist/loadNetlist` 和 `resolveNetlistPins`，按 COMP/NET 导入独立网表并解析到稳定焊盘 ID。
+- 新增线段间、点到多边形、线段到多边形距离及包围盒预筛。板文件的 D4.3 字段保持兼容。
+- 新增 `eda_board_demo` 和配套样例，供 B/C 用相同板数据联调。

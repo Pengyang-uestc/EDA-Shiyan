@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace eda {
 namespace {
@@ -56,14 +57,14 @@ double signedArea(const QPolygonF& polygon) {
 double distancePointToSegment(QPointF point, QPointF a, QPointF b) {
     const double dx = b.x() - a.x();
     const double dy = b.y() - a.y();
-    const double lengthSquared = dx * dx + dy * dy;
-    if (lengthSquared <= 0.0)
+    const double length = std::hypot(dx, dy);
+    if (length <= 0.0)
         return std::hypot(point.x() - a.x(), point.y() - a.y());
-    const double projection = std::clamp(((point.x() - a.x()) * dx + (point.y() - a.y()) * dy) /
-                                              lengthSquared,
-                                          0.0, 1.0);
-    return std::hypot(point.x() - (a.x() + projection * dx),
-                      point.y() - (a.y() + projection * dy));
+    const double ux = dx / length;
+    const double uy = dy / length;
+    const double projection = std::clamp((point.x() - a.x()) * ux + (point.y() - a.y()) * uy, 0.0, length);
+    return std::hypot(point.x() - (a.x() + projection * ux),
+                      point.y() - (a.y() + projection * uy));
 }
 
 QPointF footprintToBoard(QPointF localMil, QPointF instancePos, double rotationDeg, BoardSide side) {
@@ -186,6 +187,47 @@ bool containsPoint(const QPolygonF& polygon, QPointF point, double toleranceMil)
         }
     }
     return inside;
+}
+
+double distanceSegmentToSegment(QPointF a1, QPointF a2, QPointF b1, QPointF b2) {
+    if (!finite(a1) || !finite(a2) || !finite(b1) || !finite(b2))
+        return std::numeric_limits<double>::infinity();
+    if (segmentsIntersect(a1, a2, b1, b2, 0.0))
+        return 0.0;
+    return std::min({distancePointToSegment(a1, b1, b2), distancePointToSegment(a2, b1, b2),
+                     distancePointToSegment(b1, a1, a2), distancePointToSegment(b2, a1, a2)});
+}
+
+double distancePointToPolygon(QPointF point, const QPolygonF& polygon) {
+    return distanceSegmentToPolygon(point, point, polygon);
+}
+
+double distanceSegmentToPolygon(QPointF a, QPointF b, const QPolygonF& polygon) {
+    if (polygon.size() < 3 || !finite(a) || !finite(b) ||
+        !std::all_of(polygon.cbegin(), polygon.cend(), finite))
+        return std::numeric_limits<double>::infinity();
+    if (containsPoint(polygon, a, 0.0) || containsPoint(polygon, b, 0.0))
+        return 0.0;
+
+    double minimum = std::numeric_limits<double>::infinity();
+    for (qsizetype i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        minimum = std::min(minimum, distanceSegmentToSegment(a, b, polygon[j], polygon[i]));
+        if (minimum == 0.0)
+            break;
+    }
+    return minimum;
+}
+
+bool boundsMayBeWithin(const QRectF& a, const QRectF& b, double maxDistanceMil) {
+    const QRectF first = a.normalized();
+    const QRectF second = b.normalized();
+    if (!finite(first.topLeft()) || !finite(first.bottomRight()) ||
+        !finite(second.topLeft()) || !finite(second.bottomRight()) ||
+        !std::isfinite(maxDistanceMil) || maxDistanceMil < 0.0)
+        return true;
+    const double dx = std::max({0.0, first.left() - second.right(), second.left() - first.right()});
+    const double dy = std::max({0.0, first.top() - second.bottom(), second.top() - first.bottom()});
+    return std::hypot(dx, dy) <= maxDistanceMil;
 }
 
 } // namespace eda

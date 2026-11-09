@@ -54,9 +54,13 @@ QString quote(const QString& value) {
     return output + QChar('"');
 }
 
+bool simpleIdentifier(const QString& value) {
+    static const QRegularExpression identifier(QStringLiteral("\\A[A-Za-z0-9_+-]+\\z"));
+    return identifier.match(value).hasMatch();
+}
+
 QString token(const QString& value) {
-    static const QRegularExpression simple(QStringLiteral("^[A-Za-z0-9_+-]+$"));
-    return simple.match(value).hasMatch() ? value : quote(value);
+    return simpleIdentifier(value) ? value : quote(value);
 }
 
 QString realText(double value) {
@@ -186,11 +190,6 @@ QVector<QString> lex(const QString& line, QVector<bool>* quotedFlags = nullptr) 
             quotedFlags->append(wasQuoted);
     }
     return values;
-}
-
-bool simpleIdentifier(const QString& value) {
-    static const QRegularExpression identifier(QStringLiteral("^[A-Za-z0-9_+-]+$"));
-    return identifier.match(value).hasMatch();
 }
 
 void requireQuotedIdentifier(const QString& value, bool quoted, const QString& field) {
@@ -393,14 +392,7 @@ bool validateBoardReferencesImpl(const Board& board, const FootprintResolver& re
             const auto footprint = footprints.constFind(instance->footprintId);
             if (footprint == footprints.cend())
                 return fail(error, QStringLiteral("找不到封装：") + instance->footprintId);
-            bool found = false;
-            for (const auto& footprintPin : footprint->pins) {
-                if (footprintPin.number == pin.pinNumber) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
+            if (!footprint->findPadForPin(pin.pinNumber))
                 return fail(error, QStringLiteral("net 引用了不存在的封装引脚：") + pin.refdes + QChar('.') +
                                          QString::number(pin.pinNumber));
         }
@@ -492,7 +484,7 @@ bool decodeBoardImpl(const QByteArray& data, Board& output, const FootprintResol
         error->clear();
     if (data.size() > kMaxBoardFileBytes)
         return fail(error, QStringLiteral("板文件超过 16 MiB 上限"));
-    QStringDecoder decoder(QStringDecoder::Utf8);
+    QStringDecoder decoder(QStringDecoder::Utf8, QStringConverter::Flag::Stateless);
     const QString source = decoder(data);
     if (decoder.hasError())
         return fail(error, QStringLiteral("文件不是有效 UTF-8"));

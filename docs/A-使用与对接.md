@@ -1,6 +1,6 @@
 # 实验一 A 部分：使用与对接
 
-实现范围：封装对象模型、带版本文件格式、原子保存/载入、元件库底层存取、索引快照、规格到属性映射、构建与模块测试。没有实现 B 的窗口/画布或 C 的工艺规则/模板生成器，也没有把实验二的功能伪装成已完成。
+实验一 A 组交付包括封装对象模型、带版本文件格式、原子保存与载入、元件库底层存取、索引快照、规格到属性映射、构建与模块测试。
 
 ## 本机运行
 
@@ -77,11 +77,11 @@ ID 使用 1～64 位小写 ASCII 字母、数字、短横线、下划线，首�
 
 `exampleFootprint()` 是包含四种焊盘和五种丝印图元的集成样例，不是经制造验证的 DIP-8。实际 DIP-8 与 RAD 模板由 C 按规格生成。
 
-## 实验二 A 的板级基础（增量）
+## 实验二 A 的板级数据、网表与几何
 
 `core/board.h` 提供 `Board`、层组、板层、实例、走线、过孔、覆铜、网络和网络引脚值模型。`core/geometry.h` 提供 mil 坐标下的面积、简单多边形、点包含、线段相交/距离，以及封装局部坐标与板世界坐标的 D4.6 正反变换和底面层映射。
 
-`core/io.h` 提供 `encodeBoard/decodeBoard/saveBoard/loadBoard`，采用 [DECISIONS.md D4.3](DECISIONS.md#d43-板文件-eda-brd-1) 的 `EDA-BRD 1`。解析支持前向引用，整体校验层组/层、对象 ID、网络、实例、封装和引脚引用；板框载入后规范为逆时针。网络清单是板文件的 `net` 记录，不另设网表文件格式。加载失败不会替换调用方现有模型；保存使用 `QSaveFile` 原子提交。
+`core/io.h` 提供 `encodeBoard/decodeBoard/saveBoard/loadBoard`，采用 [DECISIONS.md D4.3](DECISIONS.md#d43-板文件-eda-brd-1) 的 `EDA-BRD 1`。解析支持前向引用，整体校验层组、板层、对象 ID、网络、实例、封装和引脚引用。板框载入后规范为逆时针，板内网络保存在 `net` 记录中。保存使用 `QSaveFile` 原子提交。
 
 `FootprintResolver` 返回 `Result<Footprint>`，可直接转接 `FootprintLibrary::load`：
 
@@ -92,6 +92,26 @@ auto boardResult = eda::loadBoard(boardPath, [&](const QString& footprintId) {
 ```
 
 Board 结构检查不执行焊盘间距、最小线宽等制造规则；这些规则仍由 C 实现。track/via/pour 分配器只增不减；耗尽时返回 `kInvalidId`。显式 `insert*` 保留传入 ID，供撤销命令用同一 ID 恢复对象。
+
+### 独立网表导入
+
+独立 `.net` 文件使用分工方案中的两种记录。文件为 UTF-8，支持 LF、CRLF、空行和以 `#` 开头的整行注释。关键字区分大小写，标识符可含中文，但不能含空白、控制字符或双引号。引脚引用以最后一个点分隔位号和编号。
+
+```text
+COMP U1 example
+COMP U2 example
+NET N001 U1.1 U2.2
+```
+
+每条 `COMP` 声明位号和库内 `Footprint::id`。每条 `NET` 声明网络名和一个或多个正整数引脚引用。允许先声明网络，解析完成后再检查位号。重复位号、重复网络、重复分配引脚、非法引脚号和悬空位号均返回错误。
+
+调用 `loadNetlist(path)` 得到元件清单和网络，再调用 `resolveNetlistPins(netlist, resolver)` 从库查找封装，返回每个网络引脚对应的封装 ID 和稳定 `PadId`。导入结果由 C 的放置流程转换为带坐标的 `Board::instances`，网络可直接填入 `Board::nets`。元件名如果来自第三方网表的显示名称，调用方需先映射到团队库 ID。
+
+### DRC 距离与样例
+
+`distancePointToSegment`、`distanceSegmentToSegment`、`distancePointToPolygon` 和 `distanceSegmentToPolygon` 返回以 mil 为单位的距离。多边形按填充区域计算，接触、相交或位于内部时距离为零。`boundsMayBeWithin` 可用作包围盒预筛，返回 false 时可跳过精确距离计算。走线宽度、焊盘半径和所需 clearance 由 C 在规则层考虑。
+
+在 Qt Creator 使用 Qt 6.11.1 的 MSVC 2022 x64 Kit 打开仓库的 `CMakeLists.txt`，构建 `eda_board_demo`，将仓库的 `examples` 目录作为程序的唯一参数。程序读入 `board-demo.net`、`board-demo.brd` 和 `footprints/example.fp`，打印引脚到焊盘的映射与板对象数量。
 
 ## GitHub 衔接
 

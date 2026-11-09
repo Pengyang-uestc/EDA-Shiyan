@@ -38,6 +38,8 @@ struct Footprint {
     Footprint& operator=(Footprint&&) noexcept = default;
     // UI 线程；footprint-local/mil。只读借用，找不到返回 nullptr；容器修改后指针可能失效。
     const Pad* findPad(PadId id) const;
+    // Same borrowing rules as findPad(); resolves through the Pin's stable PadId.
+    const Pad* findPadForPin(int pinNumber) const;
     // UI 线程；传入值的所有权不保留，调用者无需提供 ID。用户编辑时由 B 的命令调用。
     // 成功修改模型并返回稳定 ID；失败返回中文 Status，模型不变。
     [[nodiscard]] Result<PadId> addPad(Pad pad); // failure leaves model unchanged

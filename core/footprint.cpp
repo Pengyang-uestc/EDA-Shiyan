@@ -22,6 +22,12 @@ const Pad* Footprint::findPad(PadId value) const {
             return &p;
     return nullptr;
 }
+const Pad* Footprint::findPadForPin(int pinNumber) const {
+    for (const auto& pin : pins)
+        if (pin.number == pinNumber)
+            return findPad(pin.padId);
+    return nullptr;
+}
 Result<PadId> Footprint::addPad(Pad p) {
     if (!nextPadId || nextPadId == std::numeric_limits<PadId>::max() || findPad(nextPadId))
         return {Status::failure(QStringLiteral("焊盘 ID 已耗尽或分配器状态错误")), std::nullopt};

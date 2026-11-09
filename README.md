@@ -49,8 +49,8 @@ docs/      方案、约定、接口记录、测试计划、AI 记录
 
 入口是 `CMakeLists.txt`；核心库目标 `eda_core`，命令行演示 `eda_core_demo`，Qt Test 目标 `test_core`。
 
-## 实验二 A 核心基础（增量）
+## 实验二 A 数据与存储
 
 - `core/board.h`、`core/geometry.h`：板级数据模型、稳定对象 ID、通用几何和封装实例坐标变换。
-- `core/io.h`：`EDA-BRD 1` 板文件和网络记录读写，使用 resolver 校验封装/引脚引用。
-- 当前增量尚未在组内 MSVC v143 套件验收；C 需补齐板文件、稳定 ID 和 D4.6 坐标 round-trip 自动化用例。
+- `core/io.h`：独立 `.net` 导入、引脚到焊盘映射，以及 `EDA-BRD 1` 板文件读写。
+- `eda_board_demo`：读取 [网表样例](examples/board-demo.net) 和 [板文件样例](examples/board-demo.brd)。运行方式及接口约定见 [A 组使用与对接](docs/A-使用与对接.md)。
