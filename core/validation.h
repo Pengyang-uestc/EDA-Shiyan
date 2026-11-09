@@ -58,6 +58,10 @@ inline const QString kPourLayer = QStringLiteral("POUR_LAYER");
 inline const QString kPourNet = QStringLiteral("POUR_NET");
 inline const QString kPourPriority = QStringLiteral("POUR_PRIORITY");
 inline const QString kPourId = QStringLiteral("POUR_ID");
+inline const QString kLayerStructure = QStringLiteral("LAYER_STRUCTURE");
+inline const QString kLayerOrder = QStringLiteral("LAYER_ORDER");
+inline const QString kLayerInUse = QStringLiteral("LAYER_IN_USE");
+inline const QString kLayerGroupInUse = QStringLiteral("LAYER_GROUP_IN_USE");
 
 } // namespace issue_code
 

@@ -8,6 +8,7 @@ add_library(eda_pcb_features STATIC
     grid_layout.cpp
     orthogonal_router.cpp
     layout_service.cpp
+    layer_service.cpp
     union_find.cpp)
 
 target_link_libraries(eda_pcb_features PUBLIC eda_core)
@@ -57,4 +58,9 @@ if (BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}/tests/tst_copper_pour.cpp)
     target_link_libraries(test_c_copper_pour PRIVATE eda_pcb_features Qt6::Test)
     add_test(NAME c_copper_pour COMMAND test_c_copper_pour)
+
+    add_executable(test_c_layer_service
+        ${CMAKE_SOURCE_DIR}/tests/tst_layer_service.cpp)
+    target_link_libraries(test_c_layer_service PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_layer_service COMMAND test_c_layer_service)
 endif()
