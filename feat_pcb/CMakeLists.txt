@@ -3,6 +3,7 @@ add_library(eda_pcb_features STATIC
     connectivity.cpp
     pad_geometry.cpp
     drc.cpp
+    netlist_service.cpp
     union_find.cpp)
 
 target_link_libraries(eda_pcb_features PUBLIC eda_core)
@@ -27,4 +28,9 @@ if (BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}/tests/tst_drc.cpp)
     target_link_libraries(test_c_drc PRIVATE eda_pcb_features Qt6::Test)
     add_test(NAME c_drc COMMAND test_c_drc)
+
+    add_executable(test_c_netlist_service
+        ${CMAKE_SOURCE_DIR}/tests/tst_netlist_service.cpp)
+    target_link_libraries(test_c_netlist_service PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_netlist_service COMMAND test_c_netlist_service)
 endif()
