@@ -1,6 +1,7 @@
 add_library(eda_pcb_features STATIC
     board_validation.cpp
     connectivity.cpp
+    copper_pour.cpp
     pad_geometry.cpp
     drc.cpp
     netlist_service.cpp
@@ -51,4 +52,9 @@ if (BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}/tests/tst_layout_service.cpp)
     target_link_libraries(test_c_layout_service PRIVATE eda_pcb_features Qt6::Test)
     add_test(NAME c_layout_service COMMAND test_c_layout_service)
+
+    add_executable(test_c_copper_pour
+        ${CMAKE_SOURCE_DIR}/tests/tst_copper_pour.cpp)
+    target_link_libraries(test_c_copper_pour PRIVATE eda_pcb_features Qt6::Test)
+    add_test(NAME c_copper_pour COMMAND test_c_copper_pour)
 endif()

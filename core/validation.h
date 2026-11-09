@@ -53,6 +53,11 @@ inline const QString kViaAnnularRing = QStringLiteral("VIA_ANNULAR_RING");
 inline const QString kViaOutside = QStringLiteral("VIA_OUTSIDE");
 inline const QString kPourClearance = QStringLiteral("POUR_CLEARANCE");
 inline const QString kPourOutside = QStringLiteral("POUR_OUTSIDE");
+inline const QString kPourPolygon = QStringLiteral("POUR_POLYGON");
+inline const QString kPourLayer = QStringLiteral("POUR_LAYER");
+inline const QString kPourNet = QStringLiteral("POUR_NET");
+inline const QString kPourPriority = QStringLiteral("POUR_PRIORITY");
+inline const QString kPourId = QStringLiteral("POUR_ID");
 
 } // namespace issue_code
 
