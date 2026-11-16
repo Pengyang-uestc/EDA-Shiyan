@@ -17,6 +17,11 @@ enum Role {
     LayerIdRole,
     LayerColorRole,
     LayerTypeRole,
+    IsGroupRole,
+    GroupIdRole,
+    StackOrderRole,
+    ObjectIdRole,
+    RefdesRole,
 };
 }
 

@@ -30,9 +30,11 @@ bool FootprintLibrary::pathFor(const QString& id, QString& path, QString* error)
     if (error)
         error->clear();
     // Lowercase portable IDs avoid case collisions across Windows/Linux.
-    if (!QRegularExpression("^[a-z0-9][a-z0-9_-]{0,63}$").match(id).hasMatch())
+    static const QRegularExpression portableId(QStringLiteral("^[a-z0-9][a-z0-9_-]{0,63}$"));
+    static const QRegularExpression reservedName(QStringLiteral("^(con|prn|aux|nul|com[0-9]|lpt[0-9])$"));
+    if (!portableId.match(id).hasMatch())
         return fail(error, QStringLiteral("库 ID 必须为 1～64 位小写字母、数字、下划线或短横线，首位为字母或数字"));
-    if (QRegularExpression("^(con|prn|aux|nul|com[0-9]|lpt[0-9])$").match(id).hasMatch())
+    if (reservedName.match(id).hasMatch())
         return fail(error, QStringLiteral("库 ID 使用了 Windows 保留文件名"));
     if (!safeDirectory(m_root, error))
         return false;

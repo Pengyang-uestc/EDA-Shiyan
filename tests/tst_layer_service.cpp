@@ -35,6 +35,7 @@ class TestLayerService : public QObject {
 private slots:
     void ensureDefaultsIsIdempotent();
     void addGroupAndDuplicates();
+    void renameCustomGroup();
     void addLayerAndDuplicates();
     void removeLayerInUseFails();
     void removeGroupWithLayersFails();
@@ -72,6 +73,22 @@ void TestLayerService::addGroupAndDuplicates()
     QVERIFY(!LayerService::addGroup(board, QStringLiteral("Inner"), 11).status.ok);
     QVERIFY(!LayerService::addGroup(board, QStringLiteral("Top"), 12).status.ok);
     QVERIFY(!LayerService::addGroup(board, QStringLiteral("Other"), 10).status.ok);
+}
+
+void TestLayerService::renameCustomGroup()
+{
+    Board board;
+    QVERIFY(LayerService::ensureDefaultLayers(board).ok);
+    const Result<LayerGroupId> added =
+        LayerService::addGroup(board, QStringLiteral("Inner"), 10);
+    QVERIFY(added.status.ok);
+    QVERIFY(LayerService::renameGroup(board, *added.value,
+                                      QStringLiteral("Signal")).ok);
+    QCOMPARE(board.groups.back().name, QStringLiteral("Signal"));
+    QVERIFY(!LayerService::renameGroup(board, 1,
+                                       QStringLiteral("Top Renamed")).ok);
+    QVERIFY(!LayerService::renameGroup(board, *added.value,
+                                       QStringLiteral("Bottom")).ok);
 }
 
 void TestLayerService::addLayerAndDuplicates()

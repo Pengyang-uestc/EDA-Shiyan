@@ -19,6 +19,8 @@ class LayerService {
     [[nodiscard]] static Result<LayerGroupId> addGroup(
         Board& board, const QString& name, int stackOrder);
     [[nodiscard]] static Status removeGroup(Board& board, LayerGroupId id);
+    [[nodiscard]] static Status renameGroup(Board& board, LayerGroupId id,
+                                             const QString& name);
 
     [[nodiscard]] static Result<LayerId> addLayer(
         Board& board, LayerGroupId groupId, const QString& name,

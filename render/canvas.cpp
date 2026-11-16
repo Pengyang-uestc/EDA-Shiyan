@@ -31,6 +31,51 @@ QColor withAlpha(QColor color, int alpha) {
     color.setAlpha(alpha);
     return color;
 }
+
+eda::LayerId silkDrawingLayer(eda::LayerId activeLayer) {
+    switch (activeLayer) {
+    case eda::kBottomCopper:
+    case eda::kBottomSilk:
+    case eda::kBottomMask:
+        return eda::kBottomSilk;
+    default:
+        return eda::kTopSilk;
+    }
+}
+
+bool segmentIntersectsRect(QPointF a, QPointF b, const QRectF& rect) {
+    if (rect.contains(a) || rect.contains(b))
+        return true;
+    const QPointF corners[4] = {rect.topLeft(), rect.topRight(), rect.bottomRight(), rect.bottomLeft()};
+    for (int i = 0; i < 4; ++i) {
+        if (eda::segmentsIntersect(a, b, corners[i], corners[(i + 1) % 4], 0.0))
+            return true;
+    }
+    return false;
+}
+
+bool polylineIntersectsRect(const QVector<QPointF>& points, const QRectF& rect) {
+    for (qsizetype i = 1; i < points.size(); ++i) {
+        if (segmentIntersectsRect(points[i - 1], points[i], rect))
+            return true;
+    }
+    return points.size() == 1 && rect.contains(points.first());
+}
+
+bool polygonIntersectsRect(const QPolygonF& polygon, const QRectF& rect) {
+    if (polygon.size() < 3)
+        return false;
+    for (qsizetype i = 0; i < polygon.size(); ++i) {
+        if (segmentIntersectsRect(polygon[i], polygon[(i + 1) % polygon.size()], rect))
+            return true;
+    }
+    const QPointF corners[4] = {rect.topLeft(), rect.topRight(), rect.bottomRight(), rect.bottomLeft()};
+    for (QPointF point : corners) {
+        if (eda::containsPoint(polygon, point, 0.0))
+            return true;
+    }
+    return false;
+}
 } // namespace
 
 CanvasWidget::CanvasWidget(QWidget* parent) : QWidget(parent) {
@@ -105,6 +150,7 @@ void CanvasWidget::setEditorMode(EditorMode mode) {
     cancelInteraction();
     m_mode = mode;
     setCursor(mode == EditorMode::Select ? Qt::ArrowCursor : Qt::CrossCursor);
+    emit editorModeChanged(mode);
     update();
 }
 
@@ -1041,7 +1087,7 @@ void CanvasWidget::drawEditorPreview(QPainter& painter) {
     }
 
     if (m_rubberBandActive) {
-        const QRectF band = QRectF(worldToScreen(m_rubberStart), worldToScreen(m_rubberCurrent)).normalized();
+        const QRectF band = QRectF(m_rubberStart, m_rubberCurrent).normalized();
         painter.setPen(QPen(QColor(QStringLiteral("#087E8B")), 1.2, Qt::DashLine));
         painter.setBrush(QColor(8, 126, 139, 20));
         painter.drawRect(band);
@@ -1436,7 +1482,8 @@ void CanvasWidget::mouseReleaseEvent(QMouseEvent* event) {
     if (m_rubberBandActive) {
         const QRectF band = QRectF(m_rubberStart, screen).normalized();
         QVector<ObjectRef> refs = m_rubberBaseSelection;
-        if (m_context && m_context->board()) {
+        const bool isDrag = band.width() >= 3.0 || band.height() >= 3.0;
+        if (isDrag && m_context && m_context->board()) {
             const eda::Board& board = *m_context->board();
             auto appendRef = [&](const ObjectRef& ref) {
                 if (std::find(refs.begin(), refs.end(), ref) == refs.end())
@@ -1450,27 +1497,28 @@ void CanvasWidget::mouseReleaseEvent(QMouseEvent* event) {
                     appendRef(ObjectRef{ObjectType::Instance, eda::kInvalidId, instance.refdes, 0});
             }
             for (const auto& track : board.tracks) {
-                QPolygonF path;
+                QVector<QPointF> path;
                 for (const auto& point : track.points)
-                    path << worldToScreen(point);
-                if (path.boundingRect().intersects(band))
+                    path.append(worldToScreen(point));
+                if (layerVisible(track.layerId) && polylineIntersectsRect(path, band))
                     appendRef(ObjectRef{ObjectType::Track, eda::kInvalidId, {}, track.id});
             }
             for (const auto& via : board.vias) {
-                if (band.contains(worldToScreen(via.pos)))
+                if ((layerVisible(via.fromLayer) || layerVisible(via.toLayer)) &&
+                    band.contains(worldToScreen(via.pos)))
                     appendRef(ObjectRef{ObjectType::Via, eda::kInvalidId, {}, via.id});
             }
             for (const auto& pour : board.pours) {
                 QPolygonF polygon;
                 for (const auto& point : pour.points)
                     polygon << worldToScreen(point);
-                if (polygon.boundingRect().intersects(band))
+                if (layerVisible(pour.layerId) && polygonIntersectsRect(polygon, band))
                     appendRef(ObjectRef{ObjectType::Pour, eda::kInvalidId, {}, pour.id});
             }
             m_context->setSelection(refs);
-        } else if (m_context && m_context->footprint()) {
+        } else if (isDrag && m_context && m_context->footprint()) {
             for (const auto& pad : m_context->footprint()->pads) {
-                if (!padScreenRect(pad).intersects(band))
+                if (!layerVisible(pad.layer) || !padScreenRect(pad).intersects(band))
                     continue;
                 const ObjectRef ref{ObjectType::Pad, pad.id, {}, 0};
                 if (std::find(refs.begin(), refs.end(), ref) == refs.end())
@@ -1490,7 +1538,7 @@ void CanvasWidget::mouseReleaseEvent(QMouseEvent* event) {
         const QPointF end = m_context->snap(unsnappedWorld(screen));
         if (m_mode == EditorMode::AddSilkLine && QLineF(m_primitiveStart, end).length() > 0.01) {
             auto line = std::make_unique<eda::SilkLine>();
-            line->layer = m_context->activeLayer();
+            line->layer = silkDrawingLayer(m_context->activeLayer());
             line->a = m_primitiveStart;
             line->b = end;
             after.silk.push_back(std::move(line));
@@ -1499,7 +1547,7 @@ void CanvasWidget::mouseReleaseEvent(QMouseEvent* event) {
             const QRectF rect = QRectF(m_primitiveStart, end).normalized();
             if (rect.width() > 0.01 && rect.height() > 0.01) {
                 auto shape = std::make_unique<eda::SilkRect>();
-                shape->layer = m_context->activeLayer();
+                shape->layer = silkDrawingLayer(m_context->activeLayer());
                 shape->rect = rect;
                 after.silk.push_back(std::move(shape));
                 emit footprintEditRequested(before, after, tr("添加丝印矩形"));
@@ -1525,7 +1573,7 @@ void CanvasWidget::finishPolygon() {
         const eda::Footprint before = *m_context->footprint();
         eda::Footprint after = before;
         auto polygon = std::make_unique<eda::SilkPolygon>();
-        polygon->layer = m_context->activeLayer();
+        polygon->layer = silkDrawingLayer(m_context->activeLayer());
         polygon->points = QPolygonF(m_polygonPoints);
         after.silk.push_back(std::move(polygon));
         emit footprintEditRequested(before, after, tr("添加丝印多边形"));

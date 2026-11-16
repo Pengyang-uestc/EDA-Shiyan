@@ -5,6 +5,7 @@ eda::Board emptyBoardTemplate() {
     board.groups = {
         {1, QStringLiteral("Top"), 0},
         {2, QStringLiteral("Bottom"), 1},
+        {3, QStringLiteral("Mechanical"), 2},
     };
     board.layers = {
         {eda::kTopCopper, 1, QStringLiteral("Top Copper"), eda::BoardLayerType::Copper,
@@ -17,8 +18,8 @@ eda::Board emptyBoardTemplate() {
         {eda::kTopMask, 1, QStringLiteral("Top Mask"), eda::BoardLayerType::Mask, QColor(QStringLiteral("#6B8D70")), 2},
         {eda::kBottomMask, 2, QStringLiteral("Bottom Mask"), eda::BoardLayerType::Mask,
          QColor(QStringLiteral("#4D7B7F")), 2},
-        {eda::kBoardOutline, 1, QStringLiteral("Board Outline"), eda::BoardLayerType::Outline,
-         QColor(QStringLiteral("#33473C")), 3},
+        {eda::kBoardOutline, 3, QStringLiteral("Board Outline"), eda::BoardLayerType::Outline,
+         QColor(QStringLiteral("#33473C")), 0},
     };
     board.outline << QPointF(0, 0) << QPointF(2400, 0) << QPointF(2400, 1400) << QPointF(0, 1400);
     return board;
