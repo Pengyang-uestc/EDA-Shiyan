@@ -25,7 +25,7 @@
 | `feat_pcb/layer_service` | `LayerService` | 默认 7 层/3 组、组/层增删改、颜色/stackOrder、校验 | 10 |
 | `feat_pcb/layer_model` | `LayerModel` | 只读层树（组→层两级）、颜色/类型/顺序角色 | 5 |
 | `feat_pcb/drc_report` | `collectDrcIssues` | 把 `DrcResult` 的 violations/errors 映射成可定位的 `DrcIssue` | 1 |
-| `app/manufacturing_services` | `ManufacturingValidationService`、`LayerModelService` | 把 C 的校验和层模型接到 B 的 `IValidationService`/`ILayerService` | 6 |
+| `app/manufacturing_services` | `ManufacturingValidationService`、`LayerModelService` | 把 C 的校验和层模型接到 B 的 `IValidationService`/`ILayerService` | 5 |
 | `core/validation.h` | `Issue` / 错误码 | 封装、板级、层、覆铜共享结果类型 | — |
 | `core/manufacturing_rules` | 阈值 | 钻孔、环宽、阻焊、间距、丝印、线宽、板边 | — |
 
