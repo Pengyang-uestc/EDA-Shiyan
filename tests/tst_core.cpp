@@ -35,6 +35,12 @@ class CoreTest : public QObject {
         auto invalid = exampleFootprint();
         invalid.silk.push_back(nullptr);
         QVERIFY(!encodeFootprint(invalid).status.ok);
+        auto invalidId = data;
+        invalidId.replace("pad 1 1 circle", "pad 01 1 circle");
+        QVERIFY(!decodeFootprint(invalidId).status.ok);
+        const auto invalidHeader = decodeFootprint("EDA-FP 1\"\n");
+        QVERIFY(!invalidHeader.status.ok);
+        QVERIFY(invalidHeader.status.message.contains(QStringLiteral("第 1 行")));
     }
     void libraryCorruption() {
         QTemporaryDir dir(QDir::currentPath() + "/case-XXXXXX");
@@ -93,6 +99,12 @@ class CoreTest : public QObject {
         QVERIFY(!validateStructure(fp).ok);
         fp = exampleFootprint();
         fp.nextPadId = fp.pads[0].id;
+        QVERIFY(!validateStructure(fp).ok);
+        fp = exampleFootprint();
+        fp.pads[0].layer = eda::kBoardOutline;
+        QVERIFY(!validateStructure(fp).ok);
+        fp = exampleFootprint();
+        fp.silk[0]->layer = 99;
         QVERIFY(!validateStructure(fp).ok);
     }
     void atomicSave() {
@@ -213,7 +225,7 @@ class CoreTest : public QObject {
         QCOMPARE(board.value->vias.size(), 1);
         QCOMPARE(board.value->pours.size(), 1);
         QCOMPARE(board.value->nets.size(), 1);
-        board.value->groups[0].name = QStringLiteral("Top\n");
+        board.value->groups[0].name = QStringLiteral("Top\r\n");
         board.value->instances[0].refdes = QStringLiteral("模块.A");
         board.value->nets[0].pins[0].refdes = QStringLiteral("模块.A");
         QTemporaryDir temporary(QDir::currentPath() + "/board-case-XXXXXX");
@@ -226,7 +238,7 @@ class CoreTest : public QObject {
         QVERIFY(!saveBoard(path, invalid, resolve).ok);
         const auto restored = loadBoard(path, resolve);
         QVERIFY2(restored.status.ok, qPrintable(restored.status.message));
-        QCOMPARE(restored.value->groups[0].name, QStringLiteral("Top\n"));
+        QCOMPARE(restored.value->groups[0].name, QStringLiteral("Top\r\n"));
         QCOMPARE(restored.value->nets[0].pins[0].refdes, QStringLiteral("模块.A"));
         const auto before = encodeBoard(*board.value, resolve);
         const auto after = encodeBoard(*restored.value, resolve);

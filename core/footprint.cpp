@@ -4,6 +4,12 @@
 #include <cmath>
 #include <limits>
 namespace eda {
+namespace {
+bool validFootprintLayer(LayerId layer) {
+    return layer >= kTopCopper && layer <= kBottomMask;
+}
+} // namespace
+
 Footprint::Footprint(const Footprint& v)
     : id(v.id), name(v.name), units(v.units), nextPadId(v.nextPadId), pads(v.pads), pins(v.pins), holes(v.holes) {
     for (const auto& p : v.silk)
@@ -69,8 +75,8 @@ bool detail::validateStructureImpl(const Footprint& f, QString* error) {
             return fail(QStringLiteral("焊盘 ID 重复、非法或 nextPadId 不大于已有 ID"));
         ids.insert(p.id);
         if (!point(p.pos) || !positive(p.size.width()) || !positive(p.size.height()) || !nonneg(p.drill) ||
-            !nonneg(p.maskMargin) || !nonneg(p.clearance) || p.layer < 0 || int(p.shape) < 0 || int(p.shape) > 3 ||
-            p.number < 1 || !nonneg(p.cornerRadius) ||
+            !nonneg(p.maskMargin) || !nonneg(p.clearance) || !validFootprintLayer(p.layer) || int(p.shape) < 0 ||
+            int(p.shape) > 3 || p.number < 1 || !nonneg(p.cornerRadius) ||
             (p.shape == PadShape::RoundRect
                  ? (p.cornerRadius <= 0 || p.cornerRadius > qMin(p.size.width(), p.size.height()) / 2)
                  : p.cornerRadius != 0))
@@ -85,7 +91,7 @@ bool detail::validateStructureImpl(const Footprint& f, QString* error) {
         if (!point(h.pos) || !positive(h.drill) || !nonneg(h.keepout))
             return fail(QStringLiteral("安装孔坐标、孔径或禁布参数非法"));
     for (const auto& p : f.silk) {
-        if (!p || p->layer < 0 || !positive(p->width))
+        if (!p || !validFootprintLayer(p->layer) || !positive(p->width))
             return fail(QStringLiteral("丝印图元为空或样式参数非法"));
         switch (p->kind()) {
         case PrimitiveKind::Line: {

@@ -59,6 +59,7 @@ class CanvasWidget : public QWidget {
   signals:
     void cursorWorldPositionChanged(const QPointF& worldMil);
     void zoomChanged(double zoom);
+    void editorModeChanged(EditorMode mode);
     void selectionCountChanged(int count);
     void footprintEditRequested(const eda::Footprint& before, const eda::Footprint& after, const QString& text);
     void boardEditRequested(const eda::Board& before, const eda::Board& after, const QString& text);

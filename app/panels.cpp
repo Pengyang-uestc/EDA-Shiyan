@@ -2,14 +2,19 @@
 
 #include "app/document_context.h"
 #include "app/services.h"
+#include "feat_pcb/connectivity.h"
+#include "feat_pcb/drc.h"
 
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSortFilterProxyModel>
@@ -17,9 +22,20 @@
 #include <QStandardItemModel>
 #include <QToolButton>
 #include <QTreeView>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
+#include <functional>
+
 namespace {
+enum AnalysisRole {
+    AnalysisObjectTypeRole = Qt::UserRole + 100,
+    AnalysisObjectIdRole,
+    AnalysisRefdesRole,
+    AnalysisPadIdRole,
+};
+
 QDoubleSpinBox* lengthSpin(QWidget* parent, double minimum = 0.0, double maximum = 100000.0) {
     auto* spin = new QDoubleSpinBox(parent);
     spin->setDecimals(3);
@@ -161,14 +177,36 @@ LayerPanel::LayerPanel(QWidget* parent) : QWidget(parent) {
     auto* refresh = new QToolButton(header);
     refresh->setText(tr("刷新"));
     refresh->setToolTip(tr("从图层服务重新加载"));
+    auto* addGroupButton = new QToolButton(header);
+    addGroupButton->setObjectName(QStringLiteral("addLayerGroup"));
+    addGroupButton->setText(tr("+组"));
+    addGroupButton->setToolTip(tr("新增层组"));
+    auto* addLayerButton = new QToolButton(header);
+    addLayerButton->setObjectName(QStringLiteral("addLayer"));
+    addLayerButton->setText(tr("+层"));
+    addLayerButton->setToolTip(tr("在选中层组中新增层"));
+    auto* editButton = new QToolButton(header);
+    editButton->setObjectName(QStringLiteral("editLayerNode"));
+    editButton->setText(tr("改"));
+    editButton->setToolTip(tr("修改选中层组或层"));
+    auto* removeButton = new QToolButton(header);
+    removeButton->setObjectName(QStringLiteral("removeLayerNode"));
+    removeButton->setText(tr("删"));
+    removeButton->setToolTip(tr("删除选中层组或层"));
     headerLayout->addWidget(hint, 1);
+    headerLayout->addWidget(addGroupButton);
+    headerLayout->addWidget(addLayerButton);
+    headerLayout->addWidget(editButton);
+    headerLayout->addWidget(removeButton);
     headerLayout->addWidget(refresh);
     layout->addWidget(header);
 
     m_list = new QTreeView(this);
     m_list->setObjectName(QStringLiteral("layerList"));
     m_list->setHeaderHidden(true);
-    m_list->setRootIsDecorated(false);
+    m_list->setRootIsDecorated(true);
+    m_list->setItemsExpandable(true);
+    m_list->setExpandsOnDoubleClick(true);
     m_list->setUniformRowHeights(true);
     m_list->setAlternatingRowColors(true);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -180,12 +218,16 @@ LayerPanel::LayerPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(m_hint);
 
     connect(refresh, &QToolButton::clicked, this, &LayerPanel::refresh);
+    connect(addGroupButton, &QToolButton::clicked, this, &LayerPanel::addGroup);
+    connect(addLayerButton, &QToolButton::clicked, this, &LayerPanel::addLayer);
+    connect(editButton, &QToolButton::clicked, this, &LayerPanel::editNode);
+    connect(removeButton, &QToolButton::clicked, this, &LayerPanel::removeNode);
     connect(m_list->selectionModel(), &QItemSelectionModel::currentChanged, this, [this](const QModelIndex& current) {
-        if (!m_syncing && current.isValid())
+        if (!m_syncing && current.isValid() && !current.data(ServiceRoles::IsGroupRole).toBool())
             emit activeLayerRequested(current.data(ServiceRoles::LayerIdRole).toInt());
     });
     connect(m_displayModel, &QStandardItemModel::itemChanged, this, [this](QStandardItem* item) {
-        if (!m_syncing && item)
+        if (!m_syncing && item && !item->data(ServiceRoles::IsGroupRole).toBool())
             emit layerVisibilityRequested(item->data(ServiceRoles::LayerIdRole).toInt(),
                                           item->checkState() == Qt::Checked);
     });
@@ -231,6 +273,14 @@ void LayerPanel::connectModel() {
         return;
     QAbstractItemModel* model = m_service->model();
     connect(model, &QAbstractItemModel::modelReset, this, &LayerPanel::rebuild);
+    connect(model, &QAbstractItemModel::rowsInserted, this, [this] {
+        if (!m_syncing)
+            rebuild();
+    });
+    connect(model, &QAbstractItemModel::rowsRemoved, this, [this] {
+        if (!m_syncing)
+            rebuild();
+    });
     connect(model, &QAbstractItemModel::layoutChanged, this, &LayerPanel::rebuild);
     connect(model, &QAbstractItemModel::dataChanged, this, [this] { rebuild(); });
 }
@@ -241,19 +291,37 @@ void LayerPanel::rebuild() {
     m_displayModel->setHorizontalHeaderLabels({tr("层")});
     if (m_service) {
         QAbstractItemModel* source = m_service->model();
-        for (int row = 0; row < source->rowCount(); ++row) {
-            const QModelIndex index = source->index(row, 0);
-            const int id = index.data(ServiceRoles::LayerIdRole).toInt();
-            auto* item = new QStandardItem(index.data(Qt::DecorationRole).value<QIcon>(),
-                                           index.data(Qt::DisplayRole).toString());
-            item->setData(id, ServiceRoles::LayerIdRole);
-            item->setData(index.data(ServiceRoles::NameRole), ServiceRoles::NameRole);
-            item->setData(index.data(ServiceRoles::LayerColorRole), ServiceRoles::LayerColorRole);
-            item->setEditable(false);
-            item->setCheckable(true);
-            item->setCheckState(!m_context || m_context->isLayerVisible(id) ? Qt::Checked : Qt::Unchecked);
-            m_displayModel->appendRow(item);
-        }
+        std::function<void(QStandardItem*, const QModelIndex&)> appendChildren =
+            [&](QStandardItem* parentItem, const QModelIndex& parentIndex) {
+                for (int row = 0; row < source->rowCount(parentIndex); ++row) {
+                    const QModelIndex index = source->index(row, 0, parentIndex);
+                    const bool group = index.data(ServiceRoles::IsGroupRole).toBool();
+                    auto* item = new QStandardItem(index.data(Qt::DecorationRole).value<QIcon>(),
+                                                   index.data(Qt::DisplayRole).toString());
+                    item->setData(index.data(ServiceRoles::IdRole), ServiceRoles::IdRole);
+                    item->setData(index.data(ServiceRoles::NameRole), ServiceRoles::NameRole);
+                    item->setData(index.data(ServiceRoles::LayerIdRole), ServiceRoles::LayerIdRole);
+                    item->setData(index.data(ServiceRoles::LayerColorRole), ServiceRoles::LayerColorRole);
+                    item->setData(index.data(ServiceRoles::LayerTypeRole), ServiceRoles::LayerTypeRole);
+                    item->setData(group, ServiceRoles::IsGroupRole);
+                    item->setData(index.data(ServiceRoles::GroupIdRole), ServiceRoles::GroupIdRole);
+                    item->setData(index.data(ServiceRoles::StackOrderRole), ServiceRoles::StackOrderRole);
+                    item->setEditable(false);
+                    if (!group) {
+                        const int id = index.data(ServiceRoles::LayerIdRole).toInt();
+                        item->setCheckable(true);
+                        item->setCheckState(!m_context || m_context->isLayerVisible(id) ? Qt::Checked
+                                                                                       : Qt::Unchecked);
+                    }
+                    if (parentItem)
+                        parentItem->appendRow(item);
+                    else
+                        m_displayModel->appendRow(item);
+                    appendChildren(item, index);
+                }
+            };
+        appendChildren(nullptr, {});
+        m_list->expandAll();
     }
     m_syncing = false;
     if (m_context)
@@ -264,29 +332,119 @@ void LayerPanel::rebuild() {
 
 void LayerPanel::syncVisibility(eda::LayerId id, bool visible) {
     m_syncing = true;
-    for (int row = 0; row < m_displayModel->rowCount(); ++row) {
-        auto* item = m_displayModel->item(row, 0);
-        if (item && item->data(ServiceRoles::LayerIdRole).toInt() == id)
-            item->setCheckState(visible ? Qt::Checked : Qt::Unchecked);
-    }
+    if (auto* item = m_displayModel->itemFromIndex(findLayerIndex(id)))
+        item->setCheckState(visible ? Qt::Checked : Qt::Unchecked);
     m_syncing = false;
 }
 
 void LayerPanel::setActiveRow(eda::LayerId id) {
     m_syncing = true;
-    bool found = false;
-    for (int row = 0; row < m_displayModel->rowCount(); ++row) {
-        const QModelIndex index = m_displayModel->index(row, 0);
-        if (index.data(ServiceRoles::LayerIdRole).toInt() == id) {
-            m_list->setCurrentIndex(index);
-            m_hint->setText(tr("当前层：%1").arg(index.data(Qt::DisplayRole).toString()));
-            found = true;
-            break;
-        }
+    const QModelIndex index = findLayerIndex(id);
+    if (index.isValid()) {
+        m_list->setCurrentIndex(index);
+        m_hint->setText(tr("当前层：%1").arg(index.data(Qt::DisplayRole).toString()));
+    } else {
+        m_hint->setText(tr("当前层不可用"));
     }
     m_syncing = false;
-    if (!found)
-        m_hint->setText(tr("当前层不可用"));
+}
+
+QModelIndex LayerPanel::findLayerIndex(eda::LayerId id) const {
+    std::function<QModelIndex(const QModelIndex&)> find = [&](const QModelIndex& parent) -> QModelIndex {
+        for (int row = 0; row < m_displayModel->rowCount(parent); ++row) {
+            const QModelIndex index = m_displayModel->index(row, 0, parent);
+            if (!index.data(ServiceRoles::IsGroupRole).toBool() &&
+                index.data(ServiceRoles::LayerIdRole).toInt() == id)
+                return index;
+            const QModelIndex child = find(index);
+            if (child.isValid())
+                return child;
+        }
+        return {};
+    };
+    return find({});
+}
+
+void LayerPanel::addGroup() {
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("新增层组"), tr("层组名称"), QLineEdit::Normal, {}, &ok);
+    if (!ok || name.trimmed().isEmpty())
+        return;
+    const int order = QInputDialog::getInt(this, tr("新增层组"), tr("排序值"), m_displayModel->rowCount(), 0, 999, 1,
+                                           &ok);
+    if (ok)
+        emit addGroupRequested(name.trimmed(), order);
+}
+
+void LayerPanel::addLayer() {
+    const QModelIndex current = m_list->currentIndex();
+    if (!current.isValid()) {
+        emit statusMessageRequested(tr("请先选择一个层组"));
+        return;
+    }
+    const int groupId = current.data(ServiceRoles::GroupIdRole).toInt();
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("新增层"), tr("层名称"), QLineEdit::Normal, {}, &ok);
+    if (!ok || name.trimmed().isEmpty())
+        return;
+    const QStringList types{tr("铜层"), tr("丝印层"), tr("阻焊层"), tr("板框层")};
+    const QString typeName =
+        QInputDialog::getItem(this, tr("新增层"), tr("层类型"), types, 0, false, &ok);
+    if (!ok)
+        return;
+    const int type = qMax(0, types.indexOf(typeName));
+    const QColor color = QColorDialog::getColor(QColor(QStringLiteral("#667077")), this, tr("层颜色"));
+    if (!color.isValid())
+        return;
+    const int order = QInputDialog::getInt(this, tr("新增层"), tr("排序值"), 0, 0, 999, 1, &ok);
+    if (ok)
+        emit addLayerRequested(groupId, name.trimmed(), type, color, order);
+}
+
+void LayerPanel::editNode() {
+    const QModelIndex current = m_list->currentIndex();
+    if (!current.isValid())
+        return;
+    bool ok = false;
+    if (current.data(ServiceRoles::IsGroupRole).toBool()) {
+        const int id = current.data(ServiceRoles::GroupIdRole).toInt();
+        const QString name = QInputDialog::getText(this, tr("修改层组"), tr("层组名称"), QLineEdit::Normal,
+                                                   current.data(Qt::DisplayRole).toString(), &ok);
+        if (!ok || name.trimmed().isEmpty())
+            return;
+        const int order = QInputDialog::getInt(this, tr("修改层组"), tr("排序值"),
+                                               current.data(ServiceRoles::StackOrderRole).toInt(), 0, 999, 1, &ok);
+        if (ok)
+            emit editGroupRequested(id, name.trimmed(), order);
+        return;
+    }
+    const int id = current.data(ServiceRoles::LayerIdRole).toInt();
+    const QString name = QInputDialog::getText(this, tr("修改层"), tr("层名称"), QLineEdit::Normal,
+                                               current.data(Qt::DisplayRole).toString(), &ok);
+    if (!ok || name.trimmed().isEmpty())
+        return;
+    const QColor color =
+        QColorDialog::getColor(current.data(ServiceRoles::LayerColorRole).value<QColor>(), this, tr("层颜色"));
+    if (!color.isValid())
+        return;
+    const int order = QInputDialog::getInt(this, tr("修改层"), tr("排序值"),
+                                           current.data(ServiceRoles::StackOrderRole).toInt(), 0, 999, 1, &ok);
+    if (ok)
+        emit editLayerRequested(id, name.trimmed(), color, order);
+}
+
+void LayerPanel::removeNode() {
+    const QModelIndex current = m_list->currentIndex();
+    if (!current.isValid())
+        return;
+    const QString label = current.data(Qt::DisplayRole).toString();
+    if (QMessageBox::question(this, tr("删除层结构"), tr("确定删除“%1”吗？").arg(label),
+                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+        return;
+    if (current.data(ServiceRoles::IsGroupRole).toBool())
+        emit removeGroupRequested(current.data(ServiceRoles::GroupIdRole).toInt());
+    else
+        emit removeLayerRequested(current.data(ServiceRoles::LayerIdRole).toInt());
 }
 
 PropertyPanel::PropertyPanel(QWidget* parent) : QWidget(parent) {
@@ -474,4 +632,138 @@ void PropertyPanel::apply() {
 void PropertyPanel::updateShapeState() {
     const bool roundRect = static_cast<eda::PadShape>(m_shape->currentData().toInt()) == eda::PadShape::RoundRect;
     m_corner->setEnabled(roundRect && m_hasPad);
+}
+
+AnalysisPanel::AnalysisPanel(QWidget* parent) : QWidget(parent) {
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->setSpacing(8);
+
+    auto* title = new QLabel(tr("设计规则与电气连通"), this);
+    title->setStyleSheet(QStringLiteral("font-weight:600; color:#284C63;"));
+    layout->addWidget(title);
+
+    m_summary = new QLabel(tr("运行 DRC 或连通检查后显示结果"), this);
+    m_summary->setWordWrap(true);
+    m_summary->setObjectName(QStringLiteral("analysisSummary"));
+    layout->addWidget(m_summary);
+
+    m_tree = new QTreeWidget(this);
+    m_tree->setObjectName(QStringLiteral("analysisList"));
+    m_tree->setHeaderHidden(true);
+    m_tree->setUniformRowHeights(true);
+    m_tree->setAlternatingRowColors(true);
+    m_tree->setRootIsDecorated(true);
+    layout->addWidget(m_tree, 1);
+
+    connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
+        const int typeValue = item->data(0, AnalysisObjectTypeRole).toInt();
+        if (typeValue <= static_cast<int>(ObjectType::None))
+            return;
+        ObjectRef ref;
+        ref.type = static_cast<ObjectType>(typeValue);
+        ref.objectId = item->data(0, AnalysisObjectIdRole).toULongLong();
+        ref.refdes = item->data(0, AnalysisRefdesRole).toString();
+        ref.padId = item->data(0, AnalysisPadIdRole).toULongLong();
+        if (!ref.refdes.isEmpty() && ref.padId != eda::kInvalidId)
+            ref.type = ObjectType::Instance;
+        emit objectActivated(ref);
+    });
+}
+
+static QTreeWidgetItem* analysisObjectItem(const QString& text, ObjectType type = ObjectType::None,
+                                           quint64 objectId = 0, const QString& refdes = {},
+                                           eda::PadId padId = eda::kInvalidId) {
+    auto* item = new QTreeWidgetItem({text});
+    item->setData(0, AnalysisObjectTypeRole, static_cast<int>(type));
+    item->setData(0, AnalysisObjectIdRole, QVariant::fromValue<qulonglong>(objectId));
+    item->setData(0, AnalysisRefdesRole, refdes);
+    item->setData(0, AnalysisPadIdRole, QVariant::fromValue<qulonglong>(padId));
+    return item;
+}
+
+void AnalysisPanel::showDrc(const eda::DrcResult& result) {
+    m_tree->clear();
+    auto* violations = analysisObjectItem(tr("间距违规（%1）").arg(result.violations.size()));
+    m_tree->addTopLevelItem(violations);
+    for (const eda::DrcViolation& violation : result.violations) {
+        const double shortfall = qMax(0.0, violation.requiredMil - violation.actualMil);
+        const QString text = tr("%1 · 实测 %2 mil / 要求 %3 mil · 差 %4 mil\n%5")
+                                 .arg(violation.code)
+                                 .arg(violation.actualMil, 0, 'f', 3)
+                                 .arg(violation.requiredMil, 0, 'f', 3)
+                                 .arg(shortfall, 0, 'f', 3)
+                                 .arg(violation.message);
+        ObjectType type = ObjectType::None;
+        quint64 objectId = 0;
+        if (!violation.refdes.isEmpty()) {
+            type = ObjectType::Instance;
+        } else if (violation.trackIdA != eda::kInvalidId) {
+            type = ObjectType::Track;
+            objectId = violation.trackIdA;
+        } else if (violation.viaId != eda::kInvalidId) {
+            type = ObjectType::Via;
+            objectId = violation.viaId;
+        } else if (violation.pourId != eda::kInvalidId) {
+            type = ObjectType::Pour;
+            objectId = violation.pourId;
+        }
+        violations->addChild(analysisObjectItem(text, type, objectId, violation.refdes, violation.padId));
+    }
+
+    auto* errors = analysisObjectItem(tr("解析失败（%1）").arg(result.errors.size()));
+    m_tree->addTopLevelItem(errors);
+    for (const QString& error : result.errors)
+        errors->addChild(analysisObjectItem(error));
+
+    violations->setExpanded(true);
+    errors->setExpanded(!result.errors.isEmpty());
+    m_summary->setText(result.clean() ? tr("DRC 通过：没有间距违规，也没有封装解析错误")
+                                      : tr("DRC 完成：%1 个间距违规，%2 个解析错误")
+                                            .arg(result.violations.size())
+                                            .arg(result.errors.size()));
+}
+
+void AnalysisPanel::showConnectivity(const eda::Board& board, const eda::ConnectivityResult& result) {
+    m_tree->clear();
+    int disconnected = 0;
+    auto* nets = analysisObjectItem(tr("网络（%1）").arg(result.nets.size()));
+    m_tree->addTopLevelItem(nets);
+    for (const eda::NetConnectivity& net : result.nets) {
+        disconnected += net.connected ? 0 : 1;
+        QString refdes;
+        for (const eda::Net& candidate : board.nets) {
+            if (candidate.name == net.name && !candidate.pins.isEmpty()) {
+                refdes = candidate.pins.first().refdes;
+                break;
+            }
+        }
+        const QString text = tr("%1 · %2 · %3 个物理分量")
+                                 .arg(net.name, net.connected ? tr("连通") : tr("未连通"))
+                                 .arg(net.componentCount);
+        nets->addChild(analysisObjectItem(text, refdes.isEmpty() ? ObjectType::None : ObjectType::Instance, 0,
+                                          refdes));
+    }
+    auto* shorts = analysisObjectItem(tr("短路（%1）").arg(result.shortedNets.size()));
+    m_tree->addTopLevelItem(shorts);
+    for (const QString& net : result.shortedNets)
+        shorts->addChild(analysisObjectItem(tr("%1 与其他网络短接").arg(net)));
+    auto* errors = analysisObjectItem(tr("解析失败（%1）").arg(result.errors.size()));
+    m_tree->addTopLevelItem(errors);
+    for (const QString& error : result.errors)
+        errors->addChild(analysisObjectItem(error));
+
+    nets->setExpanded(true);
+    shorts->setExpanded(!result.shortedNets.isEmpty());
+    errors->setExpanded(!result.errors.isEmpty());
+    m_summary->setText(result.allNetsConnected() && !result.hasShorts()
+                           ? tr("连通检查通过：所有网络单连通，没有短路")
+                           : tr("连通检查完成：%1 个网络未连通，%2 组短路，%3 个解析错误")
+                                 .arg(disconnected)
+                                 .arg(result.shortedNets.size())
+                                 .arg(result.errors.size()));
+}
+
+int AnalysisPanel::itemCount() const {
+    return m_tree->topLevelItemCount();
 }

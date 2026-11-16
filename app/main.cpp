@@ -1,3 +1,4 @@
+#include "app/c_services.h"
 #include "app/main_window.h"
 #include "app/local_services.h"
 
@@ -41,6 +42,10 @@ int main(int argc, char** argv) {
     QCommandLineOption screenshotOption(QStringLiteral("screenshot"),
                                         QStringLiteral("Save a window screenshot and exit."), QStringLiteral("path"));
     parser.addOption(screenshotOption);
+    QCommandLineOption screenshotDirOption(
+        QStringLiteral("screenshot-dir"),
+        QStringLiteral("Save the seven B workflow screenshots into a directory and exit."), QStringLiteral("path"));
+    parser.addOption(screenshotDirOption);
     QCommandLineOption boardDemoOption(QStringLiteral("board-demo"),
                                        QStringLiteral("Open the built-in PCB demonstration."));
     parser.addOption(boardDemoOption);
@@ -53,12 +58,21 @@ int main(int argc, char** argv) {
     const auto seeded = seedExampleIfEmpty(libraryService);
     if (!seeded.ok)
         qWarning("Failed to initialize example library: %s", qPrintable(seeded.message));
-    LocalLayerService layerService;
-    StructuralValidationService validationService;
+    const auto resolver = [&libraryService](const QString& id) { return libraryService.load(id); };
+    LayerModelService layerService;
+    ManufacturingValidationService validationService(resolver);
     MainWindow window(&libraryService, &layerService, &validationService);
     if (parser.isSet(boardDemoOption) || EDA_DEFAULT_BOARD_DEMO)
         window.loadExampleBoard();
     window.show();
+
+    const QString screenshotDir = parser.value(screenshotDirOption);
+    if (!screenshotDir.isEmpty()) {
+        const bool saved = window.captureWorkflowScreenshots(screenshotDir);
+        qInfo("Workflow screenshots %s: %s", saved ? "saved" : "failed",
+              qPrintable(QFileInfo(screenshotDir).absoluteFilePath()));
+        return saved ? 0 : 1;
+    }
 
     const QString screenshotPath = parser.value(screenshotOption);
     if (!screenshotPath.isEmpty()) {

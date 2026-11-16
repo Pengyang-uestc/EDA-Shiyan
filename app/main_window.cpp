@@ -7,11 +7,15 @@
 #include "core/library.h"
 #include "feat_fp/basic_commands.h"
 #include "feat_pcb/board_commands.h"
+#include "feat_pcb/connectivity.h"
+#include "feat_pcb/drc.h"
+#include "feat_pcb/layer_service.h"
 #include "render/board_tools.h"
 #include "render/canvas.h"
 
 #include <QAction>
 #include <QActionGroup>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -19,9 +23,11 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QImage>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -31,6 +37,7 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -207,9 +214,9 @@ bool MainWindow::importNetlistFile(const QString& path) {
         }
     }
 
-    const auto structure = eda::validateBoardStructure(after);
-    if (!structure.ok) {
-        QMessageBox::critical(this, tr("网表导入失败"), structure.message);
+    const auto validation = eda::validateBoard(after, resolver);
+    if (!validation.ok) {
+        QMessageBox::critical(this, tr("网表导入失败"), validation.message);
         return false;
     }
 
@@ -230,6 +237,142 @@ bool MainWindow::importNetlistFile(const QString& path) {
                                  .arg(netlist.value->nets.size())
                                  .arg(added),
                              6000);
+    return true;
+}
+
+bool MainWindow::runDrcCheck() {
+    if (!m_document.board() || !m_libraryService)
+        return false;
+    const auto resolver = [this](const QString& id) { return m_libraryService->load(id); };
+    const eda::DrcResult result = eda::runDrc(m_document.boardData(), resolver);
+    m_analysisPanel->showDrc(result);
+    m_analysisDock->show();
+    m_analysisDock->raise();
+    statusBar()->showMessage(
+        result.clean() ? tr("设计规则检查通过")
+                       : tr("设计规则检查完成：%1 个违规，%2 个解析错误")
+                             .arg(result.violations.size())
+                             .arg(result.errors.size()),
+        6000);
+    return result.clean();
+}
+
+bool MainWindow::runConnectivityCheck() {
+    if (!m_document.board() || !m_libraryService)
+        return false;
+    const auto resolver = [this](const QString& id) { return m_libraryService->load(id); };
+    const eda::ConnectivityResult result = eda::analyzeConnectivity(m_document.boardData(), resolver);
+    m_analysisPanel->showConnectivity(m_document.boardData(), result);
+    m_analysisDock->show();
+    m_analysisDock->raise();
+    const bool clean = result.allNetsConnected() && !result.hasShorts() && result.errors.isEmpty();
+    statusBar()->showMessage(clean ? tr("连通检查通过")
+                                   : tr("连通检查完成：%1 组短路，%2 个解析错误")
+                                         .arg(result.shortedNets.size())
+                                         .arg(result.errors.size()),
+                             6000);
+    return clean;
+}
+
+bool MainWindow::captureWorkflowScreenshots(const QString& directory) {
+    QDir target(directory);
+    if (!QDir().mkpath(directory))
+        return false;
+    resize(1380, 860);
+    show();
+    QApplication::processEvents();
+    const auto save = [&](const QString& name) {
+        QApplication::processEvents();
+        const QImage image = grab().toImage();
+        return !image.isNull() && image.save(target.filePath(name));
+    };
+
+    if (!loadExampleBoard())
+        return false;
+    m_layerDock->show();
+    m_layerDock->raise();
+    if (!save(QStringLiteral("01-layer-tree.png")))
+        return false;
+
+    QTemporaryDir temporary(QDir::tempPath() + "/eda-workflow-XXXXXX");
+    if (!temporary.isValid())
+        return false;
+    const QString netlistPath = temporary.filePath(QStringLiteral("workflow.net"));
+    QFile netlist(netlistPath);
+    if (!netlist.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+    netlist.write("COMP U1 example\nCOMP U2 example\nNET N001 U1.1 U2.2\n");
+    netlist.close();
+    m_document.installFootprint(eda::exampleFootprint());
+    if (!importNetlistFile(netlistPath))
+        return false;
+    runConnectivityCheck();
+    m_analysisDock->show();
+    m_analysisDock->raise();
+    if (!save(QStringLiteral("02-netlist-connectivity.png")))
+        return false;
+
+    if (auto* place = findChild<QAction*>(QStringLiteral("placeToolAction"))) {
+        place->trigger();
+        if (m_canvas->tool())
+            m_canvas->tool()->mousePress({QPointF(260, 260), Qt::LeftButton});
+    }
+    if (!save(QStringLiteral("03-auto-layout.png")))
+        return false;
+
+    m_routeMode = eda::OrthoMode::Z_H;
+    if (auto* mode = findChild<QAction*>(QStringLiteral("routeModeZhAction")))
+        mode->setChecked(true);
+    if (auto* route = findChild<QAction*>(QStringLiteral("routeToolAction")))
+        route->trigger();
+    if (auto* tool = dynamic_cast<RouteTool*>(m_canvas->tool())) {
+        tool->mousePress({QPointF(400, 400), Qt::LeftButton});
+        tool->mouseMove({QPointF(900, 700), Qt::NoButton});
+    }
+    if (!save(QStringLiteral("04-z-route.png")))
+        return false;
+    m_canvas->clearTool();
+
+    if (auto* pour = findChild<QAction*>(QStringLiteral("pourToolAction")))
+        pour->trigger();
+    if (m_canvas->tool()) {
+        m_canvas->tool()->mousePress({QPointF(350, 350), Qt::LeftButton});
+        m_canvas->tool()->mousePress({QPointF(850, 350), Qt::LeftButton});
+        m_canvas->tool()->mousePress({QPointF(850, 650), Qt::LeftButton});
+        m_canvas->tool()->mousePress({QPointF(850, 650), Qt::RightButton});
+    }
+    if (!save(QStringLiteral("05-copper-pour.png")))
+        return false;
+
+    m_canvas->clearTool();
+    eda::DrcResult drcResult;
+    eda::DrcViolation violation;
+    violation.code = eda::drc_code::kTrackTrackClearance;
+    violation.message = tr("N001 与 GND 走线间距不足，示例用于展示列表定位");
+    violation.actualMil = 4.5;
+    violation.requiredMil = 7.874;
+    violation.netA = QStringLiteral("N001");
+    violation.netB = QStringLiteral("GND");
+    violation.trackIdA = 1;
+    violation.trackIdB = 3;
+    drcResult.violations.append(violation);
+    m_analysisPanel->showDrc(drcResult);
+    m_analysisDock->show();
+    m_analysisDock->raise();
+    if (!save(QStringLiteral("06-drc-results.png")))
+        return false;
+
+    const QString savedBoard = temporary.filePath(QStringLiteral("roundtrip.brd"));
+    const auto resolver = [this](const QString& id) { return m_libraryService->load(id); };
+    if (!eda::saveBoard(savedBoard, m_document.boardData(), resolver).ok)
+        return false;
+    const auto restored = eda::loadBoard(savedBoard, resolver);
+    if (!restored.status.ok || !restored.value)
+        return false;
+    m_document.installBoard(*restored.value, savedBoard);
+    m_layerDock->raise();
+    if (!save(QStringLiteral("07-save-reload.png")))
+        return false;
     return true;
 }
 
@@ -434,12 +577,58 @@ void MainWindow::createActions() {
     addBoardTool(tr("自动摆放"), QStringLiteral("placeToolAction"), [this] {
         return std::make_unique<PlaceTool>([this](const QString& id) { return m_libraryService->load(id); });
     })->setToolTip(tr("单击指定元件阵列的左上角"));
-    addBoardTool(tr("正交走线"), QStringLiteral("routeToolAction"), [] {
-        return std::make_unique<RouteTool>();
-    })->setToolTip(tr("依次单击起点和终点，右键或 Esc 取消"));
+    addBoardTool(tr("正交走线"), QStringLiteral("routeToolAction"), [this] {
+        return std::make_unique<RouteTool>(m_routeMode);
+    })->setToolTip(tr("连续单击添加线段，V 放置过孔，Enter 或右键完成，Esc 取消"));
+    addBoardTool(tr("放置过孔"), QStringLiteral("addViaAction"), [] {
+        return std::make_unique<ViaTool>();
+    })->setToolTip(tr("在活动层与另一可见铜层之间放置过孔"));
     addBoardTool(tr("覆铜区域"), QStringLiteral("pourToolAction"), [] {
         return std::make_unique<PourTool>();
     })->setToolTip(tr("单击添加顶点，右键或 Enter 完成，Esc 取消"));
+
+    m_drcAction = new QAction(tr("设计规则检查"), this);
+    m_drcAction->setObjectName(QStringLiteral("drcAction"));
+    m_drcAction->setShortcut(QKeySequence(Qt::Key_F8));
+    m_connectivityAction = new QAction(tr("连通检查"), this);
+    m_connectivityAction->setObjectName(QStringLiteral("connectivityAction"));
+    m_connectivityAction->setShortcut(QKeySequence(Qt::Key_F9));
+    m_boardOnlyActions << m_drcAction << m_connectivityAction;
+    connect(m_drcAction, &QAction::triggered, this, &MainWindow::runDrcCheck);
+    connect(m_connectivityAction, &QAction::triggered, this, &MainWindow::runConnectivityCheck);
+
+    m_routeModeGroup = new QActionGroup(this);
+    m_routeModeGroup->setExclusive(true);
+    struct RouteModeAction {
+        eda::OrthoMode mode;
+        QString label;
+        QString name;
+        QString shortcut;
+    };
+    const QVector<RouteModeAction> routeModes{
+        {eda::OrthoMode::HV, tr("HV 先横后竖"), QStringLiteral("routeModeHvAction"), QStringLiteral("Alt+1")},
+        {eda::OrthoMode::VH, tr("VH 先竖后横"), QStringLiteral("routeModeVhAction"), QStringLiteral("Alt+2")},
+        {eda::OrthoMode::Z_H, tr("Z_H 横向双拐"), QStringLiteral("routeModeZhAction"), QStringLiteral("Alt+3")},
+        {eda::OrthoMode::Z_V, tr("Z_V 纵向双拐"), QStringLiteral("routeModeZvAction"), QStringLiteral("Alt+4")},
+    };
+    for (const RouteModeAction& entry : routeModes) {
+        auto* action = new QAction(entry.label, this);
+        action->setObjectName(entry.name);
+        action->setCheckable(true);
+        action->setShortcut(QKeySequence(entry.shortcut));
+        action->setToolTip(tr("%1（快捷键 %2）").arg(entry.label, entry.shortcut));
+        m_routeModeGroup->addAction(action);
+        m_routeModeActions.append(action);
+        m_boardOnlyActions.append(action);
+        if (entry.mode == m_routeMode)
+            action->setChecked(true);
+        connect(action, &QAction::triggered, this, [this, mode = entry.mode, label = entry.label] {
+            m_routeMode = mode;
+            if (auto* route = dynamic_cast<RouteTool*>(m_canvas->tool()))
+                route->setOrthoMode(mode);
+            statusBar()->showMessage(tr("布线模式：%1").arg(label), 3000);
+        });
+    }
 
     connect(m_selectModeAction, &QAction::triggered, this,
             [this] { setEditorMode(static_cast<int>(CanvasWidget::EditorMode::Select)); });
@@ -569,6 +758,15 @@ void MainWindow::createDockPanels() {
     addDockWidget(Qt::RightDockWidgetArea, m_layerDock);
     splitDockWidget(m_propertyDock, m_layerDock, Qt::Vertical);
 
+    m_analysisPanel = new AnalysisPanel(this);
+    m_analysisPanel->setObjectName(QStringLiteral("analysisPanel"));
+    m_analysisDock = new QDockWidget(tr("分析与检查"), this);
+    m_analysisDock->setObjectName(QStringLiteral("analysisDock"));
+    m_analysisDock->setWidget(m_analysisPanel);
+    m_analysisDock->setMinimumWidth(280);
+    addDockWidget(Qt::RightDockWidgetArea, m_analysisDock);
+    tabifyDockWidget(m_layerDock, m_analysisDock);
+
     m_propertyPanel->setDocumentContext(&m_document);
     m_layerPanel->setDocumentContext(&m_document);
     m_libraryPanel->setService(m_libraryService);
@@ -631,6 +829,18 @@ void MainWindow::createMenus() {
     viewMenu->addAction(findChild<QAction*>(QStringLiteral("fitAction")));
     viewMenu->addAction(m_snapAction);
 
+    auto* designMenu = menuBar()->addMenu(tr("设计"));
+    designMenu->addAction(findChild<QAction*>(QStringLiteral("placeToolAction")));
+    designMenu->addAction(findChild<QAction*>(QStringLiteral("routeToolAction")));
+    auto* routeModeMenu = designMenu->addMenu(tr("布线模式"));
+    for (auto* action : m_routeModeActions)
+        routeModeMenu->addAction(action);
+    designMenu->addAction(findChild<QAction*>(QStringLiteral("addViaAction")));
+    designMenu->addAction(findChild<QAction*>(QStringLiteral("pourToolAction")));
+    designMenu->addSeparator();
+    designMenu->addAction(m_drcAction);
+    designMenu->addAction(m_connectivityAction);
+
     auto* helpMenu = menuBar()->addMenu(tr("帮助"));
     helpMenu->addAction(tr("关于"), this, [this] {
         QMessageBox::about(this, tr("关于 EDA-Shiyan"), tr("EDA 软件设计 I\n实验一封装编辑器 · B 图形与交互模块"));
@@ -648,6 +858,13 @@ void MainWindow::connectSignals() {
     connect(m_propertyPanel, &PropertyPanel::padEditRequested, this, &MainWindow::applyPadEdit);
     connect(m_layerPanel, &LayerPanel::activeLayerRequested, &m_document, &Document::setActiveLayer);
     connect(m_layerPanel, &LayerPanel::layerVisibilityRequested, &m_document, &Document::setLayerVisible);
+    connect(m_layerPanel, &LayerPanel::addGroupRequested, this, &MainWindow::addLayerGroup);
+    connect(m_layerPanel, &LayerPanel::removeGroupRequested, this, &MainWindow::removeLayerGroup);
+    connect(m_layerPanel, &LayerPanel::editGroupRequested, this, &MainWindow::editLayerGroup);
+    connect(m_layerPanel, &LayerPanel::addLayerRequested, this, &MainWindow::addBoardLayer);
+    connect(m_layerPanel, &LayerPanel::removeLayerRequested, this, &MainWindow::removeBoardLayer);
+    connect(m_layerPanel, &LayerPanel::editLayerRequested, this, &MainWindow::editBoardLayer);
+    connect(m_analysisPanel, &AnalysisPanel::objectActivated, this, &MainWindow::selectAnalysisObject);
     connect(m_canvas, &CanvasWidget::footprintEditRequested, this, &MainWindow::applyEdit);
     connect(m_canvas, &CanvasWidget::boardEditRequested, this, &MainWindow::applyBoardEdit);
     connect(m_canvas, &CanvasWidget::textPlacementRequested, this, &MainWindow::addSilkText);
@@ -657,6 +874,29 @@ void MainWindow::connectSignals() {
     });
     connect(m_canvas, &CanvasWidget::zoomChanged, this, [this](double scale) {
         m_zoomLabel->setText(tr("缩放 %1%").arg(static_cast<int>(std::round(scale * 100.0 / 2.4))));
+    });
+    connect(m_canvas, &CanvasWidget::editorModeChanged, this, [this](CanvasWidget::EditorMode mode) {
+        QString actionName;
+        switch (mode) {
+        case CanvasWidget::EditorMode::Select:
+            actionName = QStringLiteral("selectModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkLine:
+            actionName = QStringLiteral("lineModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkRectangle:
+            actionName = QStringLiteral("rectModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkPolygon:
+            actionName = QStringLiteral("polygonModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkText:
+            break;
+        }
+        if (!actionName.isEmpty()) {
+            if (auto* action = findChild<QAction*>(actionName))
+                action->setChecked(true);
+        }
     });
     connect(m_canvas, &CanvasWidget::selectionCountChanged, this, [this](int) { updateSelectionLabel(); });
     connect(m_undoAction, &QAction::triggered, &m_document, &Document::undo);
@@ -944,6 +1184,113 @@ void MainWindow::applyBoardEdit(const eda::Board& before, const eda::Board& afte
     statusBar()->showMessage(text, 2200);
 }
 
+bool MainWindow::applyLayerChange(const QString& text, const std::function<eda::Status(eda::Board&)>& action) {
+    if (!m_document.board())
+        return false;
+    eda::Board before = m_document.boardData();
+    eda::Board after = before;
+    const eda::Status status = action(after);
+    if (!status.ok) {
+        QMessageBox::warning(this, tr("层操作失败"), status.message);
+        return false;
+    }
+    const auto pushed =
+        m_document.pushCommand(new ReplaceBoardCommand(&m_document, std::move(before), std::move(after), text));
+    if (!pushed.ok) {
+        QMessageBox::warning(this, tr("层操作失败"), pushed.message);
+        return false;
+    }
+    statusBar()->showMessage(text, 2200);
+    return true;
+}
+
+void MainWindow::addLayerGroup(const QString& name, int stackOrder) {
+    applyLayerChange(tr("新增层组"), [&](eda::Board& board) {
+        const auto added = eda::LayerService::addGroup(board, name, stackOrder);
+        return added.status;
+    });
+}
+
+void MainWindow::removeLayerGroup(eda::LayerGroupId id) {
+    applyLayerChange(tr("删除层组"), [&](eda::Board& board) {
+        return eda::LayerService::removeGroup(board, id);
+    });
+}
+
+void MainWindow::editLayerGroup(eda::LayerGroupId id, const QString& name, int stackOrder) {
+    applyLayerChange(tr("修改层组"), [&](eda::Board& board) {
+        const auto found = std::find_if(board.groups.begin(), board.groups.end(),
+                                        [&](const eda::LayerGroup& group) { return group.id == id; });
+        if (found == board.groups.end())
+            return eda::Status::failure(tr("未找到层组 %1").arg(id));
+        if (found->name != name) {
+            const eda::Status renamed = eda::LayerService::renameGroup(board, id, name);
+            if (!renamed.ok)
+                return renamed;
+        }
+        if (found->stackOrder != stackOrder) {
+            const eda::Status ordered = eda::LayerService::setGroupStackOrder(board, id, stackOrder);
+            if (!ordered.ok)
+                return ordered;
+        }
+        return eda::Status::success();
+    });
+}
+
+void MainWindow::addBoardLayer(eda::LayerGroupId groupId, const QString& name, int type, const QColor& color,
+                               int stackOrder) {
+    if (type < static_cast<int>(eda::BoardLayerType::Copper) ||
+        type > static_cast<int>(eda::BoardLayerType::Outline)) {
+        QMessageBox::warning(this, tr("层操作失败"), tr("层类型非法"));
+        return;
+    }
+    applyLayerChange(tr("新增层"), [&](eda::Board& board) {
+        const auto added = eda::LayerService::addLayer(board, groupId, name,
+                                                       static_cast<eda::BoardLayerType>(type), color, stackOrder);
+        return added.status;
+    });
+}
+
+void MainWindow::removeBoardLayer(eda::LayerId id) {
+    const bool active = m_document.activeLayer() == id;
+    if (applyLayerChange(tr("删除层"), [&](eda::Board& board) {
+            return eda::LayerService::removeLayer(board, id);
+        }) &&
+        active) {
+        const auto copper = std::find_if(m_document.boardData().layers.begin(), m_document.boardData().layers.end(),
+                                         [](const eda::BoardLayer& layer) {
+                                             return layer.type == eda::BoardLayerType::Copper;
+                                         });
+        if (copper != m_document.boardData().layers.end())
+            m_document.setActiveLayer(copper->id);
+    }
+}
+
+void MainWindow::editBoardLayer(eda::LayerId id, const QString& name, const QColor& color, int stackOrder) {
+    applyLayerChange(tr("修改层"), [&](eda::Board& board) {
+        const auto found = std::find_if(board.layers.begin(), board.layers.end(),
+                                        [&](const eda::BoardLayer& layer) { return layer.id == id; });
+        if (found == board.layers.end())
+            return eda::Status::failure(tr("未找到层 %1").arg(id));
+        if (found->name != name) {
+            const eda::Status renamed = eda::LayerService::renameLayer(board, id, name);
+            if (!renamed.ok)
+                return renamed;
+        }
+        if (found->color != color) {
+            const eda::Status colored = eda::LayerService::setLayerColor(board, id, color);
+            if (!colored.ok)
+                return colored;
+        }
+        if (found->stackOrder != stackOrder) {
+            const eda::Status ordered = eda::LayerService::setLayerStackOrder(board, id, stackOrder);
+            if (!ordered.ok)
+                return ordered;
+        }
+        return eda::Status::success();
+    });
+}
+
 void MainWindow::applyPadEdit(const eda::Pad& pad) {
     eda::Footprint before = m_document.footprintData();
     eda::Footprint after = before;
@@ -1125,8 +1472,10 @@ void MainWindow::addSilkArc() {
     eda::Footprint before = m_document.footprintData();
     eda::Footprint after = before;
     auto arc = std::make_unique<eda::SilkArc>();
-    arc->layer = (m_document.activeLayer() == eda::kTopSilk || m_document.activeLayer() == eda::kBottomSilk)
-                     ? m_document.activeLayer()
+    const eda::LayerId activeLayer = m_document.activeLayer();
+    arc->layer = activeLayer == eda::kBottomCopper || activeLayer == eda::kBottomSilk ||
+                         activeLayer == eda::kBottomMask
+                     ? eda::kBottomSilk
                      : eda::kTopSilk;
     arc->center = {cx->value(), cy->value()};
     arc->radius = radius->value();
@@ -1146,8 +1495,10 @@ void MainWindow::addSilkText(const QPointF& position) {
     eda::Footprint before = m_document.footprintData();
     eda::Footprint after = before;
     auto label = std::make_unique<eda::SilkText>();
-    label->layer = (m_document.activeLayer() == eda::kTopSilk || m_document.activeLayer() == eda::kBottomSilk)
-                       ? m_document.activeLayer()
+    const eda::LayerId activeLayer = m_document.activeLayer();
+    label->layer = activeLayer == eda::kBottomCopper || activeLayer == eda::kBottomSilk ||
+                           activeLayer == eda::kBottomMask
+                       ? eda::kBottomSilk
                        : eda::kTopSilk;
     label->pos = m_document.snap(position);
     label->text = text;
@@ -1175,6 +1526,14 @@ void MainWindow::updateTitle() {
 void MainWindow::updateSelectionLabel() {
     const int count = m_document.selection().size();
     m_selectionLabel->setText(count == 0 ? tr("未选择") : tr("已选择 %1").arg(count));
+}
+
+void MainWindow::selectAnalysisObject(const ObjectRef& ref) {
+    if (!m_document.board() || ref.type == ObjectType::None)
+        return;
+    m_document.setSelection({ref});
+    m_canvas->setFocus(Qt::OtherFocusReason);
+    statusBar()->showMessage(tr("已在画布中定位分析对象"), 3000);
 }
 
 void MainWindow::updateDocumentModeActions() {

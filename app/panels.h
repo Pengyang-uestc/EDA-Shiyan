@@ -1,8 +1,14 @@
 #pragma once
 
+#include "app/document_context.h"
 #include "core/footprint.h"
 
 #include <QWidget>
+
+namespace eda {
+struct DrcResult;
+struct ConnectivityResult;
+} // namespace eda
 
 class DocumentContext;
 class ILayerService;
@@ -19,6 +25,7 @@ class QSpinBox;
 class QStandardItemModel;
 class QToolButton;
 class QTreeView;
+class QTreeWidget;
 
 class LibraryPanel : public QWidget {
     Q_OBJECT
@@ -60,6 +67,13 @@ class LayerPanel : public QWidget {
   signals:
     void activeLayerRequested(eda::LayerId id);
     void layerVisibilityRequested(eda::LayerId id, bool visible);
+    void addGroupRequested(const QString& name, int stackOrder);
+    void removeGroupRequested(eda::LayerGroupId id);
+    void editGroupRequested(eda::LayerGroupId id, const QString& name, int stackOrder);
+    void addLayerRequested(eda::LayerGroupId groupId, const QString& name, int type, const QColor& color,
+                           int stackOrder);
+    void removeLayerRequested(eda::LayerId id);
+    void editLayerRequested(eda::LayerId id, const QString& name, const QColor& color, int stackOrder);
     void statusMessageRequested(const QString& message);
 
   private:
@@ -67,6 +81,11 @@ class LayerPanel : public QWidget {
     void connectModel();
     void syncVisibility(eda::LayerId id, bool visible);
     void setActiveRow(eda::LayerId id);
+    void addGroup();
+    void addLayer();
+    void editNode();
+    void removeNode();
+    QModelIndex findLayerIndex(eda::LayerId id) const;
     DocumentContext* m_context = nullptr;
     ILayerService* m_service = nullptr;
     QTreeView* m_list = nullptr;
@@ -112,4 +131,22 @@ class PropertyPanel : public QWidget {
     QComboBox* m_layer = nullptr;
     QPushButton* m_applyButton = nullptr;
     bool m_syncing = false;
+};
+
+class AnalysisPanel : public QWidget {
+    Q_OBJECT
+
+  public:
+    explicit AnalysisPanel(QWidget* parent = nullptr);
+
+    void showDrc(const eda::DrcResult& result);
+    void showConnectivity(const eda::Board& board, const eda::ConnectivityResult& result);
+    int itemCount() const;
+
+  signals:
+    void objectActivated(const ObjectRef& ref);
+
+  private:
+    QTreeWidget* m_tree = nullptr;
+    QLabel* m_summary = nullptr;
 };
