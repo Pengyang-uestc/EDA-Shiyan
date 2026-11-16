@@ -34,10 +34,11 @@ add_library(eda_pcb_features
   feat_pcb/copper_pour.cpp feat_pcb/pad_geometry.cpp feat_pcb/drc.cpp
   feat_pcb/netlist_service.cpp feat_pcb/grid_layout.cpp feat_pcb/orthogonal_router.cpp
   feat_pcb/layout_service.cpp feat_pcb/layer_service.cpp feat_pcb/layer_model.cpp
-  feat_pcb/union_find.cpp)
+  feat_pcb/drc_report.cpp feat_pcb/union_find.cpp)
 target_link_libraries(eda_pcb_features PUBLIC eda_core Qt6::Widgets)
 add_library(eda_app app/document_context.cpp app/document.h app/documents.cpp app/demo_documents.cpp
-  app/local_services.cpp app/main_window.cpp app/panels.cpp render/canvas.cpp render/board_tools.cpp)
+  app/local_services.cpp app/manufacturing_services.cpp app/main_window.cpp app/panels.cpp
+  render/canvas.cpp render/board_tools.cpp)
 target_link_libraries(eda_app PUBLIC eda_features eda_pcb_features Qt6::Widgets)
 add_executable(eda_gui app/main.cpp)
 target_link_libraries(eda_gui PRIVATE eda_app)
@@ -56,6 +57,8 @@ if(BUILD_TESTING)
   endfunction()
   eda_test(b_gui b eda_app)
   set_tests_properties(b_gui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  eda_test(c_services c_services eda_app)
+  set_tests_properties(c_services PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
   eda_test(c_board board eda_core)
   eda_test(c_geometry geometry eda_core)
   foreach(name footprint_templates footprint_validation)
