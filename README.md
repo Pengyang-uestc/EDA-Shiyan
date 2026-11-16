@@ -28,7 +28,7 @@
 
 > 约定文档目前是草案，待三人评审后冻结为 v1.0；冻结前以文末“仍需讨论”和 §0 的决策为准。
 
-## 目录（规划）
+## 项目目录
 
 ```text
 core/      模型、几何、单位、文件、网表
@@ -37,13 +37,30 @@ app/       主窗口、菜单、撤销栈、DocumentContext
 feat_fp/   实验一：封装编辑、库管理、校验
 feat_pcb/  实验二：层组、布局、布线、覆铜、DRC
 tests/     Qt Test 与手工用例
+examples/  封装、板文件、网表和命令行演示
+scripts/   Windows 构建脚本
 docs/      方案、约定、接口记录、测试计划、AI 记录
 ```
 
-## 实验一 A 模块（已实现）
+## 构建与运行
+
+安装 Qt 6.11.1 的 MSVC 2022 x64 套件和 Ninja。在 Visual Studio 的 x64 Developer PowerShell 中打开仓库根目录，把 Qt 路径替换为本机路径。
+
+```powershell
+$qt = 'D:/Qt/6.11.1/msvc2022_64'
+$env:Path = "$qt/bin;$env:Path"
+cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=cl "-DCMAKE_PREFIX_PATH=$qt" -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+构建完成后，在同一终端执行 `./build/eda_gui.exe`。如 Qt 工具无法处理源码路径，可让 `scripts/build.ps1 -QtRoot $qt -Toolchain MSVC` 复制源码到新的纯 ASCII 路径并完成全量构建与测试。
+
+## 数据层与对接
 
 - [本机运行与 B/C 接入](docs/A-使用与对接.md)
 - [封装文件格式](docs/footprint-format.md)
+- [板文件格式](docs/board-format.md)
 - [接口变更记录](docs/interface-changelog.md)
 - [验证记录](docs/verification.md)
 
