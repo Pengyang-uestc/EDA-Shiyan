@@ -26,7 +26,29 @@
 
 - 尚未在组内指定的 MSVC v143 套件上重建；本次实际验证使用已安装 MinGW Qt 套件。
 - 未进行 GUI 展示、C 的工艺规则或完整 DIP-8 联调；需要 B/C 接入后共同验证。
+
+## 实验二 A 核心增量
+
+- Qt 6.11.1 MinGW 64 位，ASCII 路径副本配置成功；`eda_core` 与 `eda_core_demo` 编译通过，无编译警告。
+- `test_core` 目标已成功编译但本轮没有运行自动化测试；Board/EDA-BRD/几何与 D4.6 round-trip 自动化覆盖仍需由 C 的测试任务补齐。
+- 独立静态审阅发现的 2 项 Important 与 3 项 Minor 问题均已修复；修复后重新构建 core、demo 和 `test_core`，无编译警告。
+- 中文源路径下 CMake 3.30.5 自动重新配置异常退出；英文路径构建成功。组内 MSVC v143 构建尚未验证。
 - 独立 AI 代码审查不代替团队人工 review；未宣称接口已经三人冻结。
 - 未推送到 GitHub，也未修改 main/dev 的远程状态。
 
 独立代码审查：已由另一个 AI 审阅模型、读写、库管理、构建与测试，未发现阻止交付的实质性问题；该审查为静态审阅，运行验证由主执行者完成，仍需团队人工 review。
+
+## 2026-11-09 实验二 A 验证
+
+- Qt 6.11.1 MSVC x64、MSVC 19.44（v143）Release 成功构建 `test_core`、`eda_core_demo` 和 `eda_board_demo`。
+- MSVC 和 MinGW 的 CTest 均通过。MSVC 的 Qt Test 报告 13 项通过（含初始化与清理），覆盖网表解析和引脚映射、几何距离、D4.6 底面变换、板文件读写及非法保存不覆盖。
+- 样例演示输出 2 个元件、1 个网络、7 个板层、2 条走线、1 个过孔和 1 个覆铜区。
+
+## 2026-11-16 根工程验证
+
+- 基于 `integration/eda@e782ec8`，使用 Windows、MSVC 19.44.35229（v143）、Qt 6.11.1 MSVC x64、Ninja 和 Release 配置。在新的 ASCII 路径执行 `scripts/build.ps1 -Toolchain MSVC`。
+- 全量构建完成 125 步，生成 `eda_gui.exe`。CTest 17/17 套件通过，耗时 4.55 秒，包含 offscreen 的 `b_gui`。脚本把测试临时文件放在构建工作目录，避免默认临时目录的保存失败。
+- `eda_board_demo` 成功加载完整样例及板格式文档中的最小板。独立 GUI 截图命令在当前环境超时，GUI 验证证据为 `b_gui` 套件。
+- 此结果覆盖整合基线。B 的 `a12cffd` 根路径移植完成后，需要在合并候选上重新跑全套。
+
+随后在合并 C 交付后的 `integration/eda@caf516b` 上，从新目录使用同一套 MSVC、Qt 及 Release 配置重跑。Ninja 完成 131 步，CTest 18/18 套件通过（4.74 秒）。新增的第 18 套件为 `c_services`。本次基线仍早于 B 的根路径移植。
