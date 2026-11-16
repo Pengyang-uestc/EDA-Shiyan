@@ -37,7 +37,7 @@ add_library(eda_pcb_features
   feat_pcb/drc_report.cpp feat_pcb/union_find.cpp)
 target_link_libraries(eda_pcb_features PUBLIC eda_core Qt6::Widgets)
 add_library(eda_app app/document_context.cpp app/document.h app/documents.cpp app/demo_documents.cpp
-  app/local_services.cpp app/manufacturing_services.cpp app/main_window.cpp app/panels.cpp
+  app/c_services.cpp app/local_services.cpp app/main_window.cpp app/panels.cpp
   render/canvas.cpp render/board_tools.cpp)
 target_link_libraries(eda_app PUBLIC eda_features eda_pcb_features Qt6::Widgets)
 add_executable(eda_gui app/main.cpp)

@@ -2,7 +2,7 @@
 
 #include "app/demo_documents.h"
 #include "app/document.h"
-#include "app/manufacturing_services.h"
+#include "app/c_services.h"
 #include "core/footprint.h"
 #include "feat_fp/footprint_templates.h"
 #include "feat_pcb/drc_report.h"
@@ -16,7 +16,7 @@ private slots:
     void footprintRulesMapped();
     void boardRulesUseResolver();
     void boardRulesWithoutResolver();
-    void layerFlatAndTree();
+    void layerTreeAndRoles();
     void layerWithoutContext();
     void drcIssuesMapped();
 };
@@ -26,7 +26,7 @@ void TestCServices::footprintRulesMapped()
     const auto cleanTemplate = makeDip8Footprint();
     QVERIFY2(cleanTemplate.status.ok, qPrintable(cleanTemplate.status.message));
 
-    ManufacturingValidationService service;
+    ManufacturingValidationService service({});
     QVERIFY(service.validateFootprint(*cleanTemplate.value).isEmpty());
 
     Footprint bad = *cleanTemplate.value;
@@ -64,7 +64,7 @@ void TestCServices::boardRulesWithoutResolver()
 {
     Board board = exampleBoard();
     board.instances[0].footprintId = QStringLiteral("missing");
-    ManufacturingValidationService service;
+    ManufacturingValidationService service({});
     const auto issues = service.validateBoard(board);
     bool found = false;
     for (const ValidationIssue& issue : issues) {
@@ -74,7 +74,7 @@ void TestCServices::boardRulesWithoutResolver()
     QVERIFY(found);
 }
 
-void TestCServices::layerFlatAndTree()
+void TestCServices::layerTreeAndRoles()
 {
     Document document;
     document.installBoard(exampleBoard());
@@ -83,16 +83,21 @@ void TestCServices::layerFlatAndTree()
     service.setDocumentContext(&document);
     QVERIFY(service.refresh().ok);
 
-    QCOMPARE(service.treeModel()->rowCount(), 2);
-    QCOMPARE(service.treeModel()->rowCount(service.treeModel()->index(0, 0)), 4);
+    QAbstractItemModel* tree = service.model();
+    QCOMPARE(tree->rowCount(), 3);
 
-    QAbstractItemModel* flat = service.model();
-    QCOMPARE(flat->rowCount(), 7);
-    const QModelIndex first = flat->index(0, 0);
-    QCOMPARE(first.data(ServiceRoles::LayerIdRole).toInt(), int(kTopCopper));
-    QCOMPARE(first.data(ServiceRoles::NameRole).toString(), QStringLiteral("Top / Top Copper"));
-    QVERIFY(first.data(ServiceRoles::LayerColorRole).value<QColor>().isValid());
-    QCOMPARE(first.data(ServiceRoles::LayerTypeRole).toInt(), int(BoardLayerType::Copper));
+    const QModelIndex group = tree->index(0, 0);
+    QVERIFY(group.data(ServiceRoles::IsGroupRole).toBool());
+    QCOMPARE(group.data(ServiceRoles::GroupIdRole).toInt(), 1);
+    QCOMPARE(tree->rowCount(group), 3);
+
+    const QModelIndex layer = tree->index(0, 0, group);
+    QVERIFY(!layer.data(ServiceRoles::IsGroupRole).toBool());
+    QCOMPARE(layer.data(ServiceRoles::LayerIdRole).toInt(), int(kTopCopper));
+    QCOMPARE(layer.data(ServiceRoles::NameRole).toString(), QStringLiteral("Top Copper"));
+    QCOMPARE(layer.data(ServiceRoles::LayerTypeRole).toInt(), int(BoardLayerType::Copper));
+    QCOMPARE(layer.data(ServiceRoles::StackOrderRole).toInt(), 0);
+    QVERIFY(layer.data(ServiceRoles::LayerColorRole).value<QColor>().isValid());
 }
 
 void TestCServices::layerWithoutContext()
@@ -100,7 +105,9 @@ void TestCServices::layerWithoutContext()
     LayerModelService service;
     QVERIFY(service.refresh().ok);
     QCOMPARE(service.model()->rowCount(), 6);
-    QCOMPARE(service.treeModel()->rowCount(), 0);
+    const QModelIndex first = service.model()->index(0, 0);
+    QVERIFY(!first.data(ServiceRoles::IsGroupRole).toBool());
+    QCOMPARE(first.data(ServiceRoles::LayerIdRole).toInt(), int(kTopCopper));
 }
 
 void TestCServices::drcIssuesMapped()

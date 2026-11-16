@@ -35,7 +35,7 @@
 | `feat_pcb/netlist_service.h/.cpp` | 网表 → Board 导入 |
 | `feat_pcb/pad_geometry.h/.cpp` | 焊盘轮廓、板级变换、距离、包围盒 |
 | `feat_pcb/drc_report.h/.cpp` | DRC 结果 → 可定位列表项 |
-| `app/manufacturing_services.h/.cpp` | 校验与层模型接入 B 的 `IValidationService`/`ILayerService` |
+| `app/c_services.h/.cpp` | 校验与层模型接入 B 的 `IValidationService`/`ILayerService`（与 B 的集成版合并） |
 | `tests/tst_*.cpp` | 板级、连通、DRC、网表、布局、布线、覆铜、层组、层模型、服务适配测试 |
 
 ---

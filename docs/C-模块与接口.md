@@ -25,7 +25,7 @@
 | `feat_pcb/layer_service` | `LayerService` | 默认 7 层/3 组、组/层增删改、颜色/stackOrder、校验 | 10 |
 | `feat_pcb/layer_model` | `LayerModel` | 只读层树（组→层两级）、颜色/类型/顺序角色 | 5 |
 | `feat_pcb/drc_report` | `collectDrcIssues` | 把 `DrcResult` 的 violations/errors 映射成可定位的 `DrcIssue` | 1 |
-| `app/manufacturing_services` | `ManufacturingValidationService`、`LayerModelService` | 把 C 的校验和层模型接到 B 的 `IValidationService`/`ILayerService` | 5 |
+| `app/c_services` | `ManufacturingValidationService`、`LayerModelService` | 把 C 的校验和层模型接到 B 的 `IValidationService`/`ILayerService`（B 集成时并入 c_services） | 5 |
 | `core/validation.h` | `Issue` / 错误码 | 封装、板级、层、覆铜共享结果类型 | — |
 | `core/manufacturing_rules` | 阈值 | 钻孔、环宽、阻焊、间距、丝印、线宽、板边 | — |
 
@@ -41,7 +41,7 @@ B 的"导入网表"已经用 A 的 `loadNetlist` + `resolveNetlistPins` 跑通�
 
 ### 2.2 保存前校验（已接）
 
-`app/manufacturing_services.h` 里的 `ManufacturingValidationService` 实现 B 的 `IValidationService`：
+`app/c_services.h` 里的 `ManufacturingValidationService` 实现 B 的 `IValidationService`：
 
 - 构造时传入 `eda::FootprintResolver`，通常包一层库服务：`[library](const QString& id) { return library->load(id); }`
 - `validateFootprint` → `eda::validateFootprint`
@@ -59,14 +59,14 @@ ManufacturingValidationService validationService(
 
 ### 2.3 层服务（已接）
 
-`LayerModelService` 同时提供两种视图：
+`LayerModelService::model()` 返回两级树：
 
-- `treeModel()`：C 的 `eda::LayerModel`，组→层两级，给 B-3 的 `QTreeView`
-- `model()`：扁平 `QStandardItemModel`，把 C 的角色映射成 `ServiceRoles`，当前 `LayerPanel` 不改也能用
+- 顶层是组：`IsGroupRole = true`，带 `GroupIdRole`、`StackOrderRole`
+- 子行是层：`LayerIdRole`、`LayerColorRole`、`LayerTypeRole`、`StackOrderRole`
 
-角色映射：`LayerModel::LayerIdRole` → `ServiceRoles::LayerIdRole`，`ColorRole` → `LayerColorRole`，`LayerTypeRole` → `LayerTypeRole`，名称拼成 `组 / 层`。`active/visible` 仍归 `DocumentContext`；增删改层调 `eda::LayerService`，结果包进 `ReplaceBoardCommand`。
+B 的 `LayerPanel` 用 `QTreeView` 直接消费；封装模式下没有 Board 时退回 6 个标准层的平铺列表。`active/visible` 仍归 `DocumentContext`；增删改层调 `eda::LayerService`，结果包进 `ReplaceBoardCommand`。
 
-### 2.5 DRC / 连通（已接）
+### 2.4 DRC / 连通（已接）
 
 `feat_pcb/drc_report.h` 把 `DrcResult` 映射成列表项：
 
@@ -79,7 +79,7 @@ QVector<DrcIssue> collectDrcIssues(const Board&, const FootprintResolver&, const
 
 连通直接用 `ConnectivityResult`：`nets` 给出每个网络的连通性与分量数，`shortedNets` 是短路，`errors` 是解析失败，不需要再包一层。
 
-### 2.4 工具
+### 2.5 工具
 
 - `PlaceTool`：调用 `layoutInstances` 得到新 `positions`，构造 `ReplaceBoardCommand`。
 - `RouteTool`：调用 `orthogonalPath`，构造添加走线/过孔命令。
@@ -91,9 +91,9 @@ QVector<DrcIssue> collectDrcIssues(const Board&, const FootprintResolver&, const
 ## 3. 合并注意
 
 - `core/validation.h`、`core/manufacturing_rules.*` 是 C 放进 A 的 core 的共享类型/阈值，需要 A 确认接收。
-- `feat_pcb` / `feat_fp` 只依赖 `core`；唯一依赖 B 的 `app/services.h` 的是 `app/manufacturing_services.*`，把它算作 app 层胶水，不要挪进 `feat_pcb`。
-- `integration/eda` 已经拍平；`main` 仍是两套嵌套的 `EDA-Shiyan-B-实验一/`、`EDA-Shiyan-B-实验二/`。合 main 前先按任务清单 P0-2 移植 B 的 `a12cffd`，不要把嵌套目录带回来。
-- 本次适配器与文档在 `feature/liming-c-integration`；C 之前的模块已全部进入 `integration/eda`。
+- `feat_pcb` / `feat_fp` 只依赖 `core`；唯一依赖 B 的 `app/services.h` 的是 `app/c_services.*`，把它算作 app 层胶水，不要挪进 `feat_pcb`。
+- `feature/b-integration-tasks` 已 rebase 到 `integration/eda`，`a12cffd` 的修复随之落到根路径；文档、`drc_report` 和 C 的文档全部保留。
+- 两份适配器合并时保留了 B 的树模型结构，并补回错误码前缀与空 resolver 兜底；`manufacturing_services.*` 已删除，避免同名类重复定义。
 
 ---
 
@@ -107,4 +107,4 @@ QVector<DrcIssue> collectDrcIssues(const Board&, const FootprintResolver&, const
 - 服务直接改 Board，B 必须用命令包起来。
 - 板边/覆铜在板外会在 `board_validation`、`drc`、`copper_pour` 中重复报，调用方需去重。
 - `DrcIssue` 没有单独的 severity：间距违规（`Clearance`）和解析失败（`Resolution`）都算 Error，UI 按 `kind` 分组显示。
-- `LayerModelService::model()` 是给当前扁平面板的过渡视图；B-3 改成两级树后直接用 `treeModel()`，两层模型会重复刷新，不要长期并存。
+- `LayerModelService::refresh()` 每次清空重建整棵树，层数很少，没有做增量更新；层多时再考虑按行更新。

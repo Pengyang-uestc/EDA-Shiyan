@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/io.h"
+#include "feat_pcb/orthogonal_router.h"
 #include "render/tool.h"
 
 class Document;
@@ -33,15 +34,36 @@ class PlaceTool : public BoardTool {
 
 class RouteTool : public BoardTool {
   public:
+    explicit RouteTool(eda::OrthoMode mode = eda::OrthoMode::HV);
+    void activate(DocumentContext* context) override;
     void mousePress(const ToolEvent& event) override;
     void mouseMove(const ToolEvent& event) override;
+    void keyPress(QKeyEvent* event) override;
     void paintOverlay(QPainter* painter, const CanvasView& view) const override;
     void cancel() override;
+    void setOrthoMode(eda::OrthoMode mode);
+    eda::OrthoMode orthoMode() const;
+    void placeVia();
+    void finishRoute();
 
   private:
+    bool ensureSession();
+    eda::LayerId alternateCopperLayer() const;
     std::optional<QPointF> m_start;
     QPointF m_cursor;
     eda::LayerId m_layer = eda::kTopCopper;
+    eda::LayerId m_initialLayer = eda::kTopCopper;
+    eda::OrthoMode m_mode = eda::OrthoMode::HV;
+    std::optional<eda::Board> m_before;
+    eda::Board m_session;
+};
+
+class ViaTool : public BoardTool {
+  public:
+    void mousePress(const ToolEvent& event) override;
+
+  private:
+    eda::LayerId alternateCopperLayer() const;
 };
 
 class PourTool : public BoardTool {

@@ -6,6 +6,9 @@
 #include "feat_pcb/layout_service.h"
 #include "feat_pcb/orthogonal_router.h"
 
+#include <QKeyEvent>
+#include <QPainterPath>
+
 #include <algorithm>
 
 namespace {
@@ -76,34 +79,96 @@ void PlaceTool::mousePress(const ToolEvent& event) {
         commit(std::move(after), QStringLiteral("自动摆放"));
 }
 
+RouteTool::RouteTool(eda::OrthoMode mode) : m_mode(mode) {}
+
+void RouteTool::activate(DocumentContext* context) {
+    BoardTool::activate(context);
+    if (document) {
+        m_layer = document->activeLayer();
+        m_initialLayer = m_layer;
+    }
+    m_start.reset();
+    m_before.reset();
+    m_session = {};
+}
+
+bool RouteTool::ensureSession() {
+    if (!document || !document->board())
+        return false;
+    if (!m_before.has_value()) {
+        m_before = document->boardData();
+        m_session = *m_before;
+        m_initialLayer = m_layer;
+    }
+    return true;
+}
+
+eda::LayerId RouteTool::alternateCopperLayer() const {
+    if (!document || !document->board())
+        return -1;
+    QVector<eda::BoardLayer> candidates;
+    for (const eda::BoardLayer& layer : document->boardData().layers) {
+        if (layer.type == eda::BoardLayerType::Copper && layer.id != m_layer && document->isLayerVisible(layer.id))
+            candidates.append(layer);
+    }
+    std::sort(candidates.begin(), candidates.end(), [](const eda::BoardLayer& lhs, const eda::BoardLayer& rhs) {
+        if (lhs.stackOrder != rhs.stackOrder)
+            return lhs.stackOrder < rhs.stackOrder;
+        return lhs.id < rhs.id;
+    });
+    if (candidates.isEmpty())
+        return -1;
+    const auto preferred = std::find_if(candidates.begin(), candidates.end(), [](const eda::BoardLayer& layer) {
+        return layer.id == eda::kBottomCopper || layer.id == eda::kTopCopper;
+    });
+    return preferred != candidates.end() ? preferred->id : candidates.first().id;
+}
+
+void RouteTool::setOrthoMode(eda::OrthoMode mode) {
+    m_mode = mode;
+    if (document)
+        document->requestRepaint();
+}
+
+eda::OrthoMode RouteTool::orthoMode() const {
+    return m_mode;
+}
+
 void RouteTool::mousePress(const ToolEvent& event) {
+    if (!document)
+        return;
     if (event.button == Qt::RightButton) {
-        cancel();
+        finishRoute();
         return;
     }
     if (event.button != Qt::LeftButton || !copperLayer())
         return;
-    if (!m_start || m_layer != document->activeLayer()) {
+    if (!ensureSession())
+        return;
+    m_layer = document->activeLayer();
+    if (!m_start) {
         m_start = m_cursor = event.worldMil;
-        m_layer = document->activeLayer();
         document->requestRepaint();
         return;
     }
-    const auto points = eda::orthogonalPath(*m_start, event.worldMil, eda::OrthoMode::HV);
-    if (points.size() < 2)
+    eda::RouteError error = eda::RouteError::None;
+    const auto points = eda::orthogonalPath(*m_start, event.worldMil, m_mode, std::nullopt, &error);
+    if (points.size() < 2) {
+        if (error != eda::RouteError::None)
+            document->showStatus(QStringLiteral("正交走线参数非法"));
         return;
-    auto after = document->boardData();
+    }
     eda::Track track;
-    track.id = after.allocateTrackId();
+    track.id = m_session.allocateTrackId();
     track.layerId = m_layer;
     track.points = points;
-    const auto status = after.insertTrack(track);
+    const auto status = m_session.insertTrack(track);
     if (!status) {
         document->showStatus(status.message);
         return;
     }
-    if (commit(std::move(after), QStringLiteral("添加正交走线")))
-        cancel();
+    m_start = m_cursor = event.worldMil;
+    document->requestRepaint();
 }
 
 void RouteTool::mouseMove(const ToolEvent& event) {
@@ -112,15 +177,138 @@ void RouteTool::mouseMove(const ToolEvent& event) {
         document->requestRepaint();
 }
 
+void RouteTool::keyPress(QKeyEvent* event) {
+    if (event->key() == Qt::Key_V) {
+        placeVia();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+        finishRoute();
+        event->accept();
+        return;
+    }
+    BoardTool::keyPress(event);
+}
+
+void RouteTool::placeVia() {
+    if (!document || !ensureSession())
+        return;
+    const QPointF position = m_start.value_or(m_cursor);
+    const eda::LayerId target = alternateCopperLayer();
+    if (target < 0) {
+        document->showStatus(QStringLiteral("需要至少两个可见铜层才能放置过孔"));
+        return;
+    }
+    eda::Via via;
+    via.id = m_session.allocateViaId();
+    via.pos = position;
+    via.drill = 24.0;
+    via.diameter = 44.0;
+    via.fromLayer = m_layer;
+    via.toLayer = target;
+    const auto status = m_session.insertVia(via);
+    if (!status) {
+        document->showStatus(status.message);
+        return;
+    }
+    m_layer = target;
+    m_start = position;
+    m_cursor = position;
+    document->setActiveLayer(target);
+    document->requestRepaint();
+    document->showStatus(QStringLiteral("已放置过孔并切换到目标铜层"));
+}
+
+void RouteTool::finishRoute() {
+    if (!document || !m_before.has_value()) {
+        cancel();
+        return;
+    }
+    const bool changed = m_session.tracks.size() != m_before->tracks.size() ||
+                         m_session.vias.size() != m_before->vias.size();
+    if (!changed) {
+        cancel();
+        return;
+    }
+    if (commit(std::move(m_session), QStringLiteral("完成多层正交布线")))
+        cancel();
+}
+
 void RouteTool::paintOverlay(QPainter* painter, const CanvasView& view) const {
-    if (m_start)
-        preview(painter, view, QPolygonF(eda::orthogonalPath(*m_start, m_cursor, eda::OrthoMode::HV)));
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    for (const eda::Track& track : m_session.tracks) {
+        QPainterPath path;
+        for (qsizetype i = 0; i < track.points.size(); ++i) {
+            const QPointF screen = view.toScreen(track.points[i]);
+            if (i == 0)
+                path.moveTo(screen);
+            else
+                path.lineTo(screen);
+        }
+        painter->setPen(QPen(QColor(8, 126, 139), qMax(2.0, track.width * view.scale()), Qt::SolidLine,
+                             Qt::RoundCap, Qt::RoundJoin));
+        painter->drawPath(path);
+    }
+    for (const eda::Via& via : m_session.vias) {
+        painter->setPen(QPen(QColor(8, 126, 139), 2.0));
+        painter->setBrush(QColor(8, 126, 139, 80));
+        painter->drawEllipse(view.toScreen(via.pos), qMax(3.0, via.diameter * view.scale() / 2.0),
+                             qMax(3.0, via.diameter * view.scale() / 2.0));
+    }
+    if (m_start) {
+        const auto pending = eda::orthogonalPath(*m_start, m_cursor, m_mode);
+        if (pending.size() >= 2)
+            preview(painter, view, QPolygonF(pending));
+    }
+    painter->restore();
 }
 
 void RouteTool::cancel() {
     m_start.reset();
+    m_before.reset();
+    m_session = {};
     if (document)
         document->requestRepaint();
+}
+
+eda::LayerId ViaTool::alternateCopperLayer() const {
+    if (!document || !document->board())
+        return -1;
+    const eda::LayerId active = document->activeLayer();
+    for (const eda::BoardLayer& layer : document->boardData().layers) {
+        if (layer.type == eda::BoardLayerType::Copper && layer.id != active && document->isLayerVisible(layer.id))
+            return layer.id;
+    }
+    return -1;
+}
+
+void ViaTool::mousePress(const ToolEvent& event) {
+    if (event.button != Qt::LeftButton || !document || !copperLayer())
+        return;
+    const eda::LayerId target = alternateCopperLayer();
+    if (target < 0) {
+        document->showStatus(QStringLiteral("需要至少两个可见铜层才能放置过孔"));
+        return;
+    }
+    eda::Board after = document->boardData();
+    eda::Via via;
+    via.id = after.allocateViaId();
+    via.pos = event.worldMil;
+    via.drill = 24.0;
+    via.diameter = 44.0;
+    via.fromLayer = document->activeLayer();
+    via.toLayer = target;
+    const auto status = after.insertVia(via);
+    if (!status) {
+        document->showStatus(status.message);
+        return;
+    }
+    if (commit(std::move(after), QStringLiteral("放置过孔"))) {
+        document->setActiveLayer(target);
+        document->setSelection({ObjectRef{ObjectType::Via, eda::kInvalidId, {}, via.id}});
+    }
 }
 
 void PourTool::mousePress(const ToolEvent& event) {

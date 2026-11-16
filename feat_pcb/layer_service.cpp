@@ -19,29 +19,9 @@ LayerGroup* findGroup(Board& board, LayerGroupId id)
     return nullptr;
 }
 
-const LayerGroup* findGroup(const Board& board, LayerGroupId id)
-{
-    for (const LayerGroup& group : board.groups) {
-        if (group.id == id) {
-            return &group;
-        }
-    }
-    return nullptr;
-}
-
 BoardLayer* findLayer(Board& board, LayerId id)
 {
     for (BoardLayer& layer : board.layers) {
-        if (layer.id == id) {
-            return &layer;
-        }
-    }
-    return nullptr;
-}
-
-const BoardLayer* findLayer(const Board& board, LayerId id)
-{
-    for (const BoardLayer& layer : board.layers) {
         if (layer.id == id) {
             return &layer;
         }
@@ -299,7 +279,8 @@ Result<LayerGroupId> LayerService::addGroup(Board& board, const QString& name,
         }
     }
 
-    LayerGroupId next = 1;
+    // IDs 1..3 are reserved for the standard Top, Bottom and Mechanical groups.
+    LayerGroupId next = 4;
     for (const LayerGroup& group : board.groups) {
         if (group.id >= next) {
             if (group.id == std::numeric_limits<LayerGroupId>::max()) {
@@ -328,6 +309,27 @@ Status LayerService::removeGroup(Board& board, LayerGroupId id)
         }
     }
     return Status::failure(QStringLiteral("未找到层组 %1").arg(id));
+}
+
+Status LayerService::renameGroup(Board& board, LayerGroupId id, const QString& name)
+{
+    LayerGroup* group = findGroup(board, id);
+    if (!group) {
+        return Status::failure(QStringLiteral("未找到层组 %1").arg(id));
+    }
+    if (isStandardGroupId(id)) {
+        return Status::failure(QStringLiteral("标准层组名称不可修改"));
+    }
+    if (name.isEmpty()) {
+        return Status::failure(QStringLiteral("层组名称不能为空"));
+    }
+    for (const LayerGroup& other : board.groups) {
+        if (other.id != id && other.name == name) {
+            return Status::failure(QStringLiteral("层组名称重复"));
+        }
+    }
+    group->name = name;
+    return Status::success();
 }
 
 Result<LayerId> LayerService::addLayer(Board& board, LayerGroupId groupId,

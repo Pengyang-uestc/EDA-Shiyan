@@ -48,6 +48,8 @@ QString quote(const QString& value) {
             output += QStringLiteral("\\\"");
         else if (c == '\n')
             output += QStringLiteral("\\n");
+        else if (c == '\r')
+            output += QStringLiteral("\\r");
         else
             output += c;
     }
@@ -167,6 +169,8 @@ QVector<QString> lex(const QString& line, QVector<bool>* quotedFlags = nullptr) 
                 const QChar escaped = line[i++];
                 if (escaped == QChar('n'))
                     value += QChar('\n');
+                else if (escaped == QChar('r'))
+                    value += QChar('\r');
                 else if (escaped == QChar('\\') || escaped == QChar('"'))
                     value += escaped;
                 else {
@@ -221,7 +225,7 @@ int integer(const QString& value) {
 }
 
 quint64 positiveId(const QString& value) {
-    static const QRegularExpression decimalId(QStringLiteral("^[0-9]+$"));
+    static const QRegularExpression decimalId(QStringLiteral("^[1-9][0-9]*$"));
     bool ok = false;
     const quint64 id = value.toULongLong(&ok);
     if (!ok || id == kInvalidId || !decimalId.match(value).hasMatch())

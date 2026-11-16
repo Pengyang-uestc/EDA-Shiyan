@@ -23,24 +23,5 @@ class LocalLibraryService : public ILibraryService {
     mutable QStandardItemModel m_model;
 };
 
-class LocalLayerService : public ILayerService {
-  public:
-    LocalLayerService();
-
-    QAbstractItemModel* model() const override;
-    void setDocumentContext(DocumentContext* context) override;
-    eda::Status refresh() override;
-
-  private:
-    DocumentContext* m_context = nullptr;
-    mutable QStandardItemModel m_model;
-};
-
-class StructuralValidationService : public IValidationService {
-  public:
-    QVector<ValidationIssue> validateFootprint(const eda::Footprint& footprint) const override;
-    QVector<ValidationIssue> validateBoard(const eda::Board& board) const override;
-};
-
 // UI thread; creates the example once when the injected library is empty.
 eda::Status seedExampleIfEmpty(LocalLibraryService& library);
