@@ -1,6 +1,6 @@
 # C 模块与接口说明
 
-> 状态：2026-11-09，基于 A 的 `feature/pengyang-core`（含 Board、EDA-BRD、网表、几何距离）
+> 状态：2026-11-16，基于拍平后的 `integration/eda`（含 A 的 Board/EDA-BRD/网表、B 的 app/render）
 > 负责人：C（业务规则与算法）
 
 这份文档给 B 接 UI、给 A 做合并、给报告写“本人工作”用。所有模块都在 `feat_fp/`、`feat_pcb/`，测试在 `tests/`。
@@ -23,10 +23,13 @@
 | `feat_pcb/layout_service` | `layoutInstances` | gridLayout → `Instance.pos`，支持旋转/底面/凹形板框 | 7 |
 | `feat_pcb/copper_pour` | `CopperPourService` | 覆铜创建/删除/改多边形/层/网络/间距/优先级/校验 | 15 |
 | `feat_pcb/layer_service` | `LayerService` | 默认 7 层/3 组、组/层增删改、颜色/stackOrder、校验 | 10 |
+| `feat_pcb/layer_model` | `LayerModel` | 只读层树（组→层两级）、颜色/类型/顺序角色 | 5 |
+| `feat_pcb/drc_report` | `collectDrcIssues` | 把 `DrcResult` 的 violations/errors 映射成可定位的 `DrcIssue` | 1 |
+| `app/manufacturing_services` | `ManufacturingValidationService`、`LayerModelService` | 把 C 的校验和层模型接到 B 的 `IValidationService`/`ILayerService` | 5 |
 | `core/validation.h` | `Issue` / 错误码 | 封装、板级、层、覆铜共享结果类型 | — |
 | `core/manufacturing_rules` | 阈值 | 钻孔、环宽、阻焊、间距、丝印、线宽、板边 | — |
 
-当前 C 侧共 230 个用例，`ctest 15/15`。
+当前 C 侧共 265 个测试入口、18 个套件，`ctest 18/18`。
 
 ---
 
@@ -34,50 +37,47 @@
 
 ### 2.1 网表导入
 
-B 的 `app/services.h` 目前没有网表接口。建议加：
+B 的"导入网表"已经用 A 的 `loadNetlist` + `resolveNetlistPins` 跑通，保持这一套即可，不必为了统一再造一个入口。C 的 `NetlistService::importData/importFile` 是可选封装：一次调用产出 `Board`，带初始布局和字段校验；如果要换，`MainWindow::importNetlistFile` 里的三步换成一次 `importFile`，返回值仍交给 `Document::installBoard()`。
+
+### 2.2 保存前校验（已接）
+
+`app/manufacturing_services.h` 里的 `ManufacturingValidationService` 实现 B 的 `IValidationService`：
+
+- 构造时传入 `eda::FootprintResolver`，通常包一层库服务：`[library](const QString& id) { return library->load(id); }`
+- `validateFootprint` → `eda::validateFootprint`
+- `validateBoard` → `eda::validateBoardManufacturing`，并把 `eda::validateFootprint` 作为封装规则回调传入，实例焊盘不会退化成"未检查"
+- `eda::Issue` 映射成 `ValidationIssue`，错误码以 `[CODE] message` 的形式放在消息前，`padId` 保留
+
+B 只需要在 `main.cpp` 把 `StructuralValidationService` 换成：
 
 ```cpp
-class INetlistService {
-  public:
-    virtual ~INetlistService() = default;
-    virtual eda::Result<eda::NetlistImportResult> importFile(
-        const QString& path,
-        const eda::FootprintResolver& resolver,
-        const eda::NetlistImportOptions& options = {}) const = 0;
-};
+ManufacturingValidationService validationService(
+    [&libraryService](const QString& id) { return libraryService.load(id); });
 ```
 
-具体实现用 `eda::NetlistService`，由 `main.cpp` 创建并注入。返回的 `Board` 直接交给 `Document::installBoard()`。
+`LocalLibraryService` 保留，它已经包装 A 的 `FootprintLibrary`。
 
-### 2.2 保存前校验
+### 2.3 层服务（已接）
 
-B 的 `IValidationService::validateBoard(const Board&)` 没有 `FootprintResolver`，接不了 C 的 `validateBoardManufacturing`。建议改成：
+`LayerModelService` 同时提供两种视图：
+
+- `treeModel()`：C 的 `eda::LayerModel`，组→层两级，给 B-3 的 `QTreeView`
+- `model()`：扁平 `QStandardItemModel`，把 C 的角色映射成 `ServiceRoles`，当前 `LayerPanel` 不改也能用
+
+角色映射：`LayerModel::LayerIdRole` → `ServiceRoles::LayerIdRole`，`ColorRole` → `LayerColorRole`，`LayerTypeRole` → `LayerTypeRole`，名称拼成 `组 / 层`。`active/visible` 仍归 `DocumentContext`；增删改层调 `eda::LayerService`，结果包进 `ReplaceBoardCommand`。
+
+### 2.5 DRC / 连通（已接）
+
+`feat_pcb/drc_report.h` 把 `DrcResult` 映射成列表项：
 
 ```cpp
-virtual eda::Status validateBoard(
-    const eda::Board& board,
-    const eda::FootprintResolver& resolver) const = 0;
+QVector<DrcIssue> collectDrcIssues(const DrcResult&);
+QVector<DrcIssue> collectDrcIssues(const Board&, const FootprintResolver&, const DrcRules& = {});
 ```
 
-或者让服务持有 `ILibraryService`，内部用 `library.load()` 作为 resolver。
+`DrcIssueKind::Clearance` 来自 `violations`，`Resolution` 来自 `errors`（封装/焊盘解析失败，code 固定为 `DRC_RESOLVE_ERROR`）。每条带 `refdes / padId / trackId / viaId / pourId` 和实际、要求间距，B 的列表双击即可定位。
 
-封装校验：
-
-```cpp
-virtual QVector<eda::Issue> validateFootprint(
-    const eda::Footprint& footprint) const = 0;
-```
-
-B 的 `ValidationIssue` 和 `eda::Issue` 需要做一次适配；建议直接用 `eda::Issue`，减少两套类型。
-
-### 2.3 层服务
-
-B 的 `ILayerService` 要求 `QAbstractItemModel* model()`。当前 `LayerService` 只有 `QVector<LayerGroup>/<BoardLayer>`，B 需要一层适配：
-
-- 方案 A：C 在 `feat_pcb` 加 `LayerModel : QStandardItemModel`，`ILayerService` 直接返回它；
-- 方案 B：B 的层面板自己根据 `groups/layers` 建模型，C 只提供数据。
-
-建议方案 A，面板不用重复写模型。`active/visible` 仍归 `DocumentContext`，`LayerService` 不持有。
+连通直接用 `ConnectivityResult`：`nets` 给出每个网络的连通性与分量数，`shortedNets` 是短路，`errors` 是解析失败，不需要再包一层。
 
 ### 2.4 工具
 
@@ -91,9 +91,9 @@ B 的 `ILayerService` 要求 `QAbstractItemModel* model()`。当前 `LayerServic
 ## 3. 合并注意
 
 - `core/validation.h`、`core/manufacturing_rules.*` 是 C 放进 A 的 core 的共享类型/阈值，需要 A 确认接收。
-- C 的 `feat_pcb` 只依赖 `core`，不依赖 `app`；B 的 `ITool` 在 `render/`，C 的工具实现会放在 B 的 `feat_pcb` 目录，但接口仍由 B 提供。
-- `main` 目前还包含 B 的嵌套 `EDA-Shiyan-B-实验一/`；合并前需要 B 拍平目录，否则根 CMake 会有两套 `core`。
-- C 的 PR #4、#7 已合入 `feature/pengyang-core`；板边 DRC、布局、布线、实例布局、覆铜、层服务在 PR #8。
+- `feat_pcb` / `feat_fp` 只依赖 `core`；唯一依赖 B 的 `app/services.h` 的是 `app/manufacturing_services.*`，把它算作 app 层胶水，不要挪进 `feat_pcb`。
+- `integration/eda` 已经拍平；`main` 仍是两套嵌套的 `EDA-Shiyan-B-实验一/`、`EDA-Shiyan-B-实验二/`。合 main 前先按任务清单 P0-2 移植 B 的 `a12cffd`，不要把嵌套目录带回来。
+- 本次适配器与文档在 `feature/liming-c-integration`；C 之前的模块已全部进入 `integration/eda`。
 
 ---
 
@@ -106,3 +106,5 @@ B 的 `ILayerService` 要求 `QAbstractItemModel* model()`。当前 `LayerServic
 - 网表初始布局和 `layoutInstances` 是两套语义：前者 origin 左上角、全局最大 cell；后者居中后平移到 origin。
 - 服务直接改 Board，B 必须用命令包起来。
 - 板边/覆铜在板外会在 `board_validation`、`drc`、`copper_pour` 中重复报，调用方需去重。
+- `DrcIssue` 没有单独的 severity：间距违规（`Clearance`）和解析失败（`Resolution`）都算 Error，UI 按 `kind` 分组显示。
+- `LayerModelService::model()` 是给当前扁平面板的过渡视图；B-3 改成两级树后直接用 `treeModel()`，两层模型会重复刷新，不要长期并存。
