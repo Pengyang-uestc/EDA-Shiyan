@@ -81,8 +81,11 @@ QVector<QString> lex(const QString& s) {
                 bad(QStringLiteral("字符串未闭合或后缺空白"));
         } else {
             qsizetype b = i;
-            while (i < s.size() && !s[i].isSpace())
+            while (i < s.size() && !s[i].isSpace()) {
+                if (s[i] == '"')
+                    bad(QStringLiteral("未引用文本中不能包含双引号"));
                 ++i;
+            }
             v = s.mid(b, i - b);
         }
         out.append(v);
@@ -102,16 +105,18 @@ double real(const QString& s) {
     return n;
 }
 int integer(const QString& s) {
+    static const QRegularExpression re(QStringLiteral("^-?(?:0|[1-9][0-9]*)$"));
     bool ok = false;
     int n = s.toInt(&ok);
-    if (!ok)
+    if (!ok || !re.match(s).hasMatch())
         bad(QStringLiteral("整数格式非法"));
     return n;
 }
 quint64 id(const QString& s) {
+    static const QRegularExpression re(QStringLiteral("^[1-9][0-9]*$"));
     bool ok = false;
     quint64 n = s.toULongLong(&ok);
-    if (!ok || n == kInvalidId)
+    if (!ok || n == kInvalidId || !re.match(s).hasMatch())
         bad(QStringLiteral("ID 必须为正整数"));
     return n;
 }
@@ -281,7 +286,14 @@ bool decodeFootprintImpl(const QByteArray& data, Footprint& output, QString* err
     qsizetype first = 0;
     while (first < lines.size() && (lines[first].trimmed().isEmpty() || lines[first].trimmed().startsWith('#')))
         ++first;
-    if (first == lines.size() || lex(lines[first]) != QVector<QString>{QStringLiteral("EDA-FP"), QStringLiteral("1")})
+    QVector<QString> header;
+    try {
+        if (first < lines.size())
+            header = lex(lines[first]);
+    } catch (const ParseFailure& e) {
+        return fail(error, QStringLiteral("第 %1 行：%2").arg(first + 1).arg(e.message));
+    }
+    if (first == lines.size() || header != QVector<QString>{QStringLiteral("EDA-FP"), QStringLiteral("1")})
         return fail(error, QStringLiteral("缺少 EDA-FP 1 文件头"));
     Footprint f;
     bool units = false, hasId = false, hasName = false, ended = false;

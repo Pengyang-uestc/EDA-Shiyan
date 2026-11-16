@@ -9,13 +9,18 @@
 #include "render/canvas.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QFile>
 #include <QImage>
+#include <QMessageBox>
 #include <QSet>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QTreeView>
 #include <QtTest>
+
+#include <algorithm>
 
 class GuiTest : public QObject {
     Q_OBJECT
@@ -52,6 +57,27 @@ class GuiTest : public QObject {
         QVERIFY(document.selection().isEmpty());
     }
 
+    void editorModeTracksActions() {
+        QTemporaryDir directory(QDir::currentPath() + "/b-mode-XXXXXX");
+        QVERIFY(directory.isValid());
+        LocalLibraryService library(directory.path());
+        LocalLayerService layers;
+        StructuralValidationService validation;
+        MainWindow window(&library, &layers, &validation);
+
+        auto* lineAction = window.findChild<QAction*>(QStringLiteral("lineModeAction"));
+        auto* selectAction = window.findChild<QAction*>(QStringLiteral("selectModeAction"));
+        QVERIFY(lineAction);
+        QVERIFY(selectAction);
+        lineAction->trigger();
+        QCOMPARE(window.canvas()->editorMode(), CanvasWidget::EditorMode::AddSilkLine);
+        QVERIFY(lineAction->isChecked());
+
+        QTest::keyClick(window.canvas(), Qt::Key_Escape);
+        QCOMPARE(window.canvas()->editorMode(), CanvasWidget::EditorMode::Select);
+        QVERIFY(selectAction->isChecked());
+    }
+
     void canvasRoundTripAndHitTest() {
         Document document;
         document.installFootprint(eda::exampleFootprint());
@@ -68,6 +94,77 @@ class GuiTest : public QObject {
         const QPointF padCenter = canvas.worldToScreen(document.footprintData().pads.first().pos);
         QCOMPARE(canvas.padAtScreen(padCenter), document.footprintData().pads.first().id);
         QCOMPARE(canvas.padAtScreen(QPointF(2, 2)), eda::kInvalidId);
+    }
+
+    void silkDrawingUsesSilkLayer() {
+        Document document;
+        document.installFootprint(eda::exampleFootprint());
+        document.setActiveLayer(eda::kTopCopper);
+        CanvasWidget canvas;
+        canvas.resize(900, 620);
+        canvas.setDocumentContext(&document);
+        canvas.fitToView();
+        canvas.setEditorMode(CanvasWidget::EditorMode::AddSilkLine);
+
+        bool requested = false;
+        eda::Footprint edited;
+        connect(&canvas, &CanvasWidget::footprintEditRequested,
+                [&](const eda::Footprint&, const eda::Footprint& after, const QString&) {
+                    requested = true;
+                    edited = after;
+                });
+        const QPoint start = (canvas.canvasViewport().center() - QPointF(80, 0)).toPoint();
+        const QPoint end = (canvas.canvasViewport().center() + QPointF(80, 0)).toPoint();
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, start);
+        QTest::mouseMove(&canvas, end, 10);
+        QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, end);
+
+        QVERIFY(requested);
+        QVERIFY(!edited.silk.empty());
+        QCOMPARE(edited.silk.back()->layer, eda::kTopSilk);
+    }
+
+    void rubberBandRespectsVisibilityAndGeometry() {
+        eda::Board board = emptyBoardTemplate();
+        eda::Track track;
+        track.id = 1;
+        track.layerId = eda::kTopCopper;
+        track.width = 20.0;
+        track.points = {QPointF(100, 100), QPointF(900, 100), QPointF(900, 900)};
+        board.tracks.append(track);
+
+        Document document;
+        document.installBoard(board);
+        CanvasWidget canvas;
+        canvas.resize(900, 620);
+        canvas.setDocumentContext(&document);
+        canvas.fitToView();
+
+        const auto hasTrack = [&]() {
+            const auto selection = document.selection();
+            return std::any_of(selection.begin(), selection.end(), [](const ObjectRef& ref) {
+                return ref.type == ObjectType::Track && ref.objectId == 1;
+            });
+        };
+        const auto rubberBand = [&](QPointF from, QPointF to) {
+            const QPoint start = canvas.worldToScreen(from).toPoint();
+            const QPoint end = canvas.worldToScreen(to).toPoint();
+            QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, start);
+            QTest::mouseMove(&canvas, end, 10);
+            QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, end);
+        };
+
+        document.setLayerVisible(eda::kTopCopper, false);
+        rubberBand(QPointF(50, 150), QPointF(950, 50));
+        QVERIFY(!hasTrack());
+
+        document.setLayerVisible(eda::kTopCopper, true);
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier,
+                          canvas.worldToScreen(QPointF(450, 500)).toPoint());
+        QVERIFY(document.selection().isEmpty());
+
+        rubberBand(QPointF(50, 150), QPointF(950, 50));
+        QVERIFY(hasTrack());
     }
 
     void mainWindowHasBWorkflow() {
@@ -251,6 +348,47 @@ class GuiTest : public QObject {
         QVERIFY(window.importNetlistFile(netlistPath));
         QCOMPARE(window.document()->boardData().instances.size(), 2);
         QCOMPARE(window.document()->boardData().nets.first().pins.size(), 2);
+    }
+
+    void netlistImportRejectsIncompatibleFootprintReplacement() {
+        QTemporaryDir temporaryDirectory(QDir::currentPath() + "/b-netlist-invalid-XXXXXX");
+        QVERIFY(temporaryDirectory.isValid());
+        LocalLibraryService library(temporaryDirectory.path());
+        QVERIFY(seedExampleIfEmpty(library).ok);
+        auto singlePad = eda::exampleFootprint();
+        singlePad.id = QStringLiteral("single");
+        singlePad.name = QStringLiteral("Single pad");
+        singlePad.pads = {singlePad.pads.first()};
+        singlePad.pins = {singlePad.pins.first()};
+        singlePad.holes.clear();
+        singlePad.silk.clear();
+        QVERIFY(library.save(singlePad).ok);
+        QVERIFY(library.refresh().ok);
+
+        LocalLayerService layers;
+        StructuralValidationService validation;
+        MainWindow window(&library, &layers, &validation);
+        QVERIFY(window.loadExampleBoard());
+        QCOMPARE(window.document()->boardData().instances.first().footprintId, QStringLiteral("example"));
+
+        const QString netlistPath = temporaryDirectory.filePath(QStringLiteral("invalid.net"));
+        QFile netlist(netlistPath);
+        QVERIFY(netlist.open(QIODevice::WriteOnly | QIODevice::Text));
+        netlist.write("COMP U1 single\nNET NNEW U1.1\n");
+        netlist.close();
+
+        QTimer closer;
+        connect(&closer, &QTimer::timeout, [] {
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                if (auto* box = qobject_cast<QMessageBox*>(widget))
+                    box->reject();
+            }
+        });
+        closer.start(10);
+        QVERIFY(!window.importNetlistFile(netlistPath));
+        closer.stop();
+        QCOMPARE(window.document()->boardData().instances.first().footprintId, QStringLiteral("example"));
+        QVERIFY(!window.document()->canUndo());
     }
 };
 

@@ -206,9 +206,9 @@ bool MainWindow::importNetlistFile(const QString& path) {
         }
     }
 
-    const auto structure = eda::validateBoardStructure(after);
-    if (!structure.ok) {
-        QMessageBox::critical(this, tr("网表导入失败"), structure.message);
+    const auto validation = eda::validateBoard(after, resolver);
+    if (!validation.ok) {
+        QMessageBox::critical(this, tr("网表导入失败"), validation.message);
         return false;
     }
 
@@ -632,6 +632,29 @@ void MainWindow::connectSignals() {
     });
     connect(m_canvas, &CanvasWidget::zoomChanged, this, [this](double scale) {
         m_zoomLabel->setText(tr("缩放 %1%").arg(static_cast<int>(std::round(scale * 100.0 / 2.4))));
+    });
+    connect(m_canvas, &CanvasWidget::editorModeChanged, this, [this](CanvasWidget::EditorMode mode) {
+        QString actionName;
+        switch (mode) {
+        case CanvasWidget::EditorMode::Select:
+            actionName = QStringLiteral("selectModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkLine:
+            actionName = QStringLiteral("lineModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkRectangle:
+            actionName = QStringLiteral("rectModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkPolygon:
+            actionName = QStringLiteral("polygonModeAction");
+            break;
+        case CanvasWidget::EditorMode::AddSilkText:
+            break;
+        }
+        if (!actionName.isEmpty()) {
+            if (auto* action = findChild<QAction*>(actionName))
+                action->setChecked(true);
+        }
     });
     connect(m_canvas, &CanvasWidget::selectionCountChanged, this, [this](int) { updateSelectionLabel(); });
     connect(m_undoAction, &QAction::triggered, &m_document, &Document::undo);
@@ -1098,8 +1121,10 @@ void MainWindow::addSilkArc() {
     eda::Footprint before = m_document.footprintData();
     eda::Footprint after = before;
     auto arc = std::make_unique<eda::SilkArc>();
-    arc->layer = (m_document.activeLayer() == eda::kTopSilk || m_document.activeLayer() == eda::kBottomSilk)
-                     ? m_document.activeLayer()
+    const eda::LayerId activeLayer = m_document.activeLayer();
+    arc->layer = activeLayer == eda::kBottomCopper || activeLayer == eda::kBottomSilk ||
+                         activeLayer == eda::kBottomMask
+                     ? eda::kBottomSilk
                      : eda::kTopSilk;
     arc->center = {cx->value(), cy->value()};
     arc->radius = radius->value();
@@ -1119,8 +1144,10 @@ void MainWindow::addSilkText(const QPointF& position) {
     eda::Footprint before = m_document.footprintData();
     eda::Footprint after = before;
     auto label = std::make_unique<eda::SilkText>();
-    label->layer = (m_document.activeLayer() == eda::kTopSilk || m_document.activeLayer() == eda::kBottomSilk)
-                       ? m_document.activeLayer()
+    const eda::LayerId activeLayer = m_document.activeLayer();
+    label->layer = activeLayer == eda::kBottomCopper || activeLayer == eda::kBottomSilk ||
+                           activeLayer == eda::kBottomMask
+                       ? eda::kBottomSilk
                        : eda::kTopSilk;
     label->pos = m_document.snap(position);
     label->text = text;
